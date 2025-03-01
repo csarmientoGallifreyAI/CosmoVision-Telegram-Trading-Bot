@@ -10,7 +10,9 @@
     "generate-key": "node scripts/generate-auth-key.js",
     "generate-embeddings": "node scripts/generate-embeddings.js",
     "setup-bot": "node scripts/setup-bot.js",
-    "start": "npm run webhook && npm run generate-embeddings && npm run setup-bot && npm run dev"
+    "start": "npm run webhook && npm run generate-embeddings && npm run setup-bot && npm run dev",
+    "download-model": "node scripts/download-model.js",
+    "test-model": "node scripts/test-local-model.js"
   },
   "dependencies": {
     "telegraf": "^4.15.3",
@@ -20,9 +22,11 @@
     "dotenv": "^16.3.1",
     "openai": "^4.28.0",
     "@tensorflow/tfjs": "^4.11.0",
+    "@tensorflow/tfjs-node": "^4.11.0",
     "mathjs": "^11.11.1",
     "ml-regression-multivariate-linear": "^2.0.4",
-    "axios": "^1.6.2"
+    "axios": "^1.6.2",
+    "commander": "^11.1.0"
   },
   "devDependencies": {
     "vercel": "^32.6.1"
