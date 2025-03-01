@@ -47,6 +47,17 @@ module.exports = async (req, res) => {
     const updated_coins = await Blockchain.update_blockchain_data();
     updated_count = updated_coins.length;
 
+    // Save historical metrics for each updated coin
+    Logger.info('Saving historical metrics...');
+    for (const coinData of [...scraped_coins, ...updated_coins]) {
+      const metrics = ['price', 'holders', 'transfers_24h'];
+      for (const metric of metrics) {
+        if (coinData[metric] !== undefined) {
+          await Database.saveHistoricalMetric(coinData.contract, metric, coinData[metric]);
+        }
+      }
+    }
+
     // Save a historical snapshot
     Logger.info('Saving historical snapshot...');
     await Database.save_historical_snapshot();

@@ -63,6 +63,42 @@ class Database {
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_coins_chain ON coins(chain);');
       }
 
+      // Create historical metrics table for time-series analysis
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS historical_metrics (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contract TEXT NOT NULL,
+          metric_name TEXT NOT NULL,
+          value REAL NOT NULL,
+          timestamp INTEGER NOT NULL,
+          FOREIGN KEY (contract) REFERENCES coins(contract) ON DELETE CASCADE,
+          UNIQUE(contract, metric_name, timestamp)
+        );
+      `);
+
+      // Create indices for historical_metrics
+      this.db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_historical_contract ON historical_metrics(contract);'
+      );
+      this.db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_historical_metric ON historical_metrics(metric_name);'
+      );
+      this.db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_historical_timestamp ON historical_metrics(timestamp);'
+      );
+
+      // Create coin embeddings table for similarity search
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS coin_embeddings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contract TEXT NOT NULL,
+          embedding BLOB NOT NULL,
+          created_at INTEGER NOT NULL,
+          FOREIGN KEY (contract) REFERENCES coins(contract) ON DELETE CASCADE,
+          UNIQUE(contract)
+        );
+      `);
+
       Logger.info('Database initialized successfully');
     } catch (error) {
       Logger.error('Error initializing database:', { error: error.message, stack: error.stack });
@@ -336,6 +372,135 @@ class Database {
     } catch (error) {
       Logger.error('Error saving historical snapshot:', { error: error.message });
       throw error;
+    }
+  }
+
+  static async getHistoricalMetrics(contract, metricName, days = 14) {
+    try {
+      if (!this.db) {
+        this.initialize_database();
+      }
+
+      const stmt = this.db.prepare(`
+        SELECT value, timestamp
+        FROM historical_metrics
+        WHERE contract = ? AND metric_name = ?
+        AND timestamp >= ?
+        ORDER BY timestamp ASC
+      `);
+
+      const cutoffTime = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
+      const rows = stmt.all(contract, metricName, cutoffTime);
+
+      return rows;
+    } catch (error) {
+      Logger.error('Error fetching historical metrics:', {
+        error: error.message,
+        contract,
+        metricName,
+      });
+      return [];
+    }
+  }
+
+  static async saveHistoricalMetric(contract, metricName, value) {
+    try {
+      if (!this.db) {
+        this.initialize_database();
+      }
+
+      const timestamp = Math.floor(Date.now() / 1000);
+
+      const stmt = this.db.prepare(`
+        INSERT OR REPLACE INTO historical_metrics (contract, metric_name, value, timestamp)
+        VALUES (?, ?, ?, ?)
+      `);
+
+      stmt.run(contract, metricName, value, timestamp);
+      Logger.debug(`Saved historical metric: ${metricName} for ${contract}`);
+
+      return true;
+    } catch (error) {
+      Logger.error('Error saving historical metric:', {
+        error: error.message,
+        contract,
+        metricName,
+      });
+      return false;
+    }
+  }
+
+  static async saveEmbedding(contract, embedding) {
+    try {
+      if (!this.db) {
+        this.initialize_database();
+      }
+
+      // Convert the embedding array to a binary blob
+      const embeddingBlob = Buffer.from(JSON.stringify(embedding));
+      const timestamp = Math.floor(Date.now() / 1000);
+
+      const stmt = this.db.prepare(`
+        INSERT OR REPLACE INTO coin_embeddings (contract, embedding, created_at)
+        VALUES (?, ?, ?)
+      `);
+
+      stmt.run(contract, embeddingBlob, timestamp);
+      Logger.debug(`Saved embedding for ${contract}`);
+
+      return true;
+    } catch (error) {
+      Logger.error('Error saving embedding:', { error: error.message, contract });
+      return false;
+    }
+  }
+
+  static async getEmbedding(contract) {
+    try {
+      if (!this.db) {
+        this.initialize_database();
+      }
+
+      const stmt = this.db.prepare(`
+        SELECT embedding FROM coin_embeddings
+        WHERE contract = ?
+      `);
+
+      const row = stmt.get(contract);
+
+      if (!row) return null;
+
+      // Convert the blob back to a JavaScript array
+      return JSON.parse(row.embedding.toString());
+    } catch (error) {
+      Logger.error('Error fetching embedding:', { error: error.message, contract });
+      return null;
+    }
+  }
+
+  static async getAllEmbeddings() {
+    try {
+      if (!this.db) {
+        this.initialize_database();
+      }
+
+      const stmt = this.db.prepare(`
+        SELECT e.contract, e.embedding, c.name, c.symbol
+        FROM coin_embeddings e
+        JOIN coins c ON e.contract = c.contract
+      `);
+
+      const rows = stmt.all();
+
+      return rows.map((row) => ({
+        contract: row.contract,
+        name: row.name,
+        symbol: row.symbol,
+        embedding: JSON.parse(row.embedding.toString()),
+      }));
+    } catch (error) {
+      Logger.error('Error fetching all embeddings:', { error: error.message });
+      return [];
     }
   }
 }
