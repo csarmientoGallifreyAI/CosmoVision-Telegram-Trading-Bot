@@ -106,9 +106,11 @@ async function setupBot(bot) {
           error: photoError.message,
           path: BOT_PROFILE_PHOTO_PATH,
         });
+        // Continue with setup even if profile photo fails
       }
     } else {
-      Logger.warn('Bot profile photo not found at path:', { path: BOT_PROFILE_PHOTO_PATH });
+      Logger.info('No profile photo found. The bot will use default Telegram avatar.');
+      // Continue with setup without setting profile photo
     }
 
     // Set bot description
