@@ -2,9 +2,11 @@ const Scraper = require('../src/scraper');
 const Blockchain = require('../src/blockchain');
 const Database = require('../src/database');
 const Logger = require('../src/services/logger');
-const AlertModel = require('../src/models/alertModel');
+const AlertModel = require('../src/models/alert');
 const MarketCapService = require('../src/services/marketCap');
 const { Telegraf } = require('telegraf');
+const RateLimitService = require('../src/services/rateLimit');
+const AIProviderManager = require('../src/services/aiProvider');
 
 module.exports = async (req, res) => {
   Logger.info('Starting scheduled data update...');
@@ -29,6 +31,10 @@ module.exports = async (req, res) => {
   try {
     // Initialize database
     Database.initialize_database();
+
+    // Initialize AI Provider Manager and Rate Limiting
+    RateLimitService.initialize();
+    AIProviderManager.initialize();
 
     // Track stats
     const startTime = Date.now();
@@ -66,6 +72,60 @@ module.exports = async (req, res) => {
     Logger.info('Updating market caps...');
     const market_cap_updates = await MarketCapService.updateMarketCaps();
     market_cap_count = market_cap_updates.length;
+
+    // Generate embeddings for new coins
+    try {
+      Logger.info('Generating embeddings for new coins...');
+      const { SimilarityEngine } = require('../src/ai');
+
+      // Focus on coins that were recently updated
+      const recentlyUpdatedCoins = [...scraped_coins, ...updated_coins];
+      let embeddingsGenerated = 0;
+      let embeddingsFailed = 0;
+
+      // Process in smaller batches to avoid rate limits
+      const batchSize = 5;
+      for (let i = 0; i < recentlyUpdatedCoins.length; i += batchSize) {
+        const batch = recentlyUpdatedCoins.slice(i, i + batchSize);
+
+        // Process each coin in the batch
+        for (const coin of batch) {
+          try {
+            // Check if the coin already has an embedding
+            const existingEmbedding = await Database.getEmbedding(coin.contract);
+
+            if (!existingEmbedding) {
+              Logger.debug(`Generating new embedding for ${coin.name}`);
+              await SimilarityEngine.generateCoinEmbedding(coin);
+              embeddingsGenerated++;
+            }
+          } catch (coinError) {
+            embeddingsFailed++;
+            Logger.error(`Failed to generate embedding for ${coin.name}:`, {
+              error: coinError.message,
+              contract: coin.contract,
+            });
+            // Continue processing other coins
+          }
+        }
+
+        // Only add delay if we have more batches to process
+        if (i + batchSize < recentlyUpdatedCoins.length) {
+          // Add a delay between batches to avoid hitting rate limits
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+      }
+
+      Logger.info(
+        `Embedding generation complete: ${embeddingsGenerated} generated, ${embeddingsFailed} failed`
+      );
+    } catch (embeddingError) {
+      Logger.error('Error in embedding generation process:', {
+        error: embeddingError.message,
+        stack: embeddingError.stack,
+      });
+      // Continue with the rest of the update process
+    }
 
     // Check for triggered alerts
     Logger.info('Checking for triggered alerts...');

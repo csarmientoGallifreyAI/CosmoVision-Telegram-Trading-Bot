@@ -2,10 +2,12 @@
  * NLPEngine provides natural language processing capabilities
  * for understanding and responding to user queries about meme coins.
  */
-const { OpenAI } = require('openai');
-const Database = require('../database');
-const CacheService = require('../services/cache');
+const OpenAI = require('openai');
 const Logger = require('../services/logger');
+const CacheService = require('../services/cache');
+const AIProviderManager = require('../services/aiProvider');
+const HuggingFaceService = require('../services/huggingface');
+const Database = require('../database');
 
 class NLPEngine {
   static openai = new OpenAI({
@@ -13,100 +15,235 @@ class NLPEngine {
   });
 
   /**
-   * Process a natural language query to extract intent and provide results
+   * Process a natural language query
    * @param {string} query - User's natural language query
-   * @returns {Object} - Query results with detected intent
+   * @param {string} userId - User ID for rate limiting
+   * @returns {Promise<Object>} - Processed query with intent and entities
    */
-  static async processQuery(query) {
+  static async processQuery(query, userId = 'anonymous') {
     try {
-      Logger.info('Processing NLP query', { query: query.substring(0, 100) });
+      Logger.info('Processing natural language query', { query: query.substring(0, 50) });
 
-      // Use cache for identical queries
-      const cacheKey = `nlp_query_${query.toLowerCase().trim()}`;
-      return await CacheService.getOrFetch(
-        cacheKey,
-        async () => {
-          // First, detect the intent of the query
-          const intent = await this.detectIntent(query);
-          Logger.debug('Detected intent', { intent: JSON.stringify(intent) });
+      // Try to detect intent
+      const intent = await this.detectIntent(query, userId);
 
-          // Handle different intent types
-          switch (intent.type) {
-            case 'discovery':
-              return await this.handleDiscoveryQuery(query, intent);
-            case 'analysis':
-              return await this.handleAnalysisQuery(query, intent);
-            case 'comparison':
-              return await this.handleComparisonQuery(query, intent);
-            default:
-              return {
-                type: 'unknown',
-                message:
-                  "I'm not sure what you're asking. Try asking about specific coins or metrics.",
-              };
-          }
-        },
-        3600
-      ); // Cache for 1 hour
-    } catch (error) {
-      Logger.error('Error processing NLP query:', { error: error.message, query });
+      if (!intent) {
+        throw new Error('Failed to detect intent from query');
+      }
+
+      // Return the processed query
       return {
-        type: 'error',
-        message: 'Sorry, I encountered an error while processing your query.',
+        ...intent,
+        original_query: query,
       };
+    } catch (error) {
+      Logger.error('Error processing natural language query:', { error: error.message });
+
+      // Use Hugging Face as a fallback
+      try {
+        Logger.info('Attempting to use Hugging Face for query processing');
+        return await HuggingFaceService.processQuery(query);
+      } catch (hfError) {
+        Logger.error('Hugging Face fallback also failed:', { error: hfError.message });
+
+        // If that also fails, use the basic regex fallback
+        return {
+          type: 'discovery',
+          ...this.fallbackIntentDetection(query),
+          original_query: query,
+          is_fallback: true,
+        };
+      }
     }
   }
 
   /**
    * Detect the intent and entities in a user query
+   * Now uses the AI Provider Manager for provider selection
+   * @param {string} query - User's query
+   * @param {string} userId - User ID for rate limiting
+   * @returns {Object} - Detected intent and entities
+   */
+  static async detectIntent(query, userId = 'anonymous') {
+    try {
+      Logger.debug('Attempting to detect intent', { query: query.substring(0, 50) });
+
+      const cacheKey = `intent_${query.toLowerCase().trim()}`;
+      return await CacheService.getOrFetch(
+        cacheKey,
+        async () => {
+          // Check if we should use OpenAI or fall back to Hugging Face
+          try {
+            // Let the AI Provider Manager decide which provider to use
+            const provider = AIProviderManager.selectProvider('nlp', userId);
+
+            if (provider === AIProviderManager.PROVIDERS.OPENAI) {
+              const response = await this.openai.chat.completions.create({
+                model: 'gpt-3.5-turbo-0125', // Cost-efficient model
+                messages: [
+                  {
+                    role: 'system',
+                    content: `You are analyzing user queries about meme coins and cryptocurrency.
+                  Determine the primary intent type and extract relevant entities.
+                  Possible intent types: discovery (finding coins), analysis (analyzing specific coins),
+                  comparison (comparing coins), or unknown.
+
+                  For each intent, extract relevant entities such as:
+                  - coin_name: Names or symbols of specific coins
+                  - metrics: Metrics of interest (price, holders, market_cap, etc.)
+                  - thresholds: Any thresholds or conditions mentioned (e.g., "over 1000 holders")
+                  - chain: Blockchain name if specified (BSC, ETH, NEAR, etc.)
+                  - time_period: Any time periods mentioned
+                  - sort_criteria: How results should be sorted
+
+                  Output JSON only.`,
+                  },
+                  {
+                    role: 'user',
+                    content: `Analyze this query and return a JSON object with intent type and entities: "${query}"`,
+                  },
+                ],
+                response_format: { type: 'json_object' },
+                temperature: 0.1, // Lower temperature for more consistent results
+                max_tokens: 500,
+              });
+
+              try {
+                return JSON.parse(response.choices[0].message.content);
+              } catch (e) {
+                Logger.error('Failed to parse intent JSON:', {
+                  error: e.message,
+                  response: response.choices[0].message.content,
+                });
+                throw e;
+              }
+            } else if (provider === AIProviderManager.PROVIDERS.HUGGINGFACE) {
+              // Use Hugging Face for intent detection
+              return await HuggingFaceService.processQuery(query);
+            } else {
+              // Use fallback intent detection
+              return this.fallbackIntentDetection(query);
+            }
+          } catch (error) {
+            Logger.error('Error in intent detection:', {
+              error: error.message,
+              statusCode: error.status || 'unknown',
+            });
+
+            if (error.status === 429) {
+              Logger.warn('API rate limit reached, using fallback');
+              AIProviderManager.handleProviderError(AIProviderManager.PROVIDERS.OPENAI, error);
+            }
+
+            // Attempt to use Hugging Face as a fallback
+            try {
+              return await HuggingFaceService.processQuery(query);
+            } catch (hfError) {
+              // If Hugging Face also fails, use the pure regex fallback
+              return this.fallbackIntentDetection(query);
+            }
+          }
+        },
+        86400
+      ); // Cache for 24 hours to reduce API calls
+    } catch (error) {
+      Logger.error('Error detecting intent:', { error: error.message });
+      return this.fallbackIntentDetection(query);
+    }
+  }
+
+  /**
+   * Fallback method for intent detection when OpenAI API is unavailable
+   * Uses simple pattern matching and keyword detection
    * @param {string} query - User's query
    * @returns {Object} - Detected intent and entities
    */
-  static async detectIntent(query) {
-    try {
-      const response = await this.openai.chat.completions.create({
-        model: 'gpt-3.5-turbo-0125', // Cost-efficient model
-        messages: [
-          {
-            role: 'system',
-            content: `You are analyzing user queries about meme coins and cryptocurrency.
-            Determine the primary intent type and extract relevant entities.
-            Possible intent types: discovery (finding coins), analysis (analyzing specific coins),
-            comparison (comparing coins), or unknown.
+  static fallbackIntentDetection(query) {
+    Logger.info('Using fallback intent detection for query', { query: query.substring(0, 50) });
 
-            For each intent, extract relevant entities such as:
-            - coin_name: Names or symbols of specific coins
-            - metrics: Metrics of interest (price, holders, market_cap, etc.)
-            - thresholds: Any thresholds or conditions mentioned (e.g., "over 1000 holders")
-            - chain: Blockchain name if specified (BSC, ETH, NEAR, etc.)
-            - time_period: Any time periods mentioned
-            - sort_criteria: How results should be sorted
+    // Convert to lowercase for easier matching
+    const q = query.toLowerCase();
 
-            Output JSON only.`,
-          },
-          {
-            role: 'user',
-            content: `Analyze this query and return a JSON object with intent type and entities: "${query}"`,
-          },
-        ],
-        response_format: { type: 'json_object' },
-        temperature: 0.1, // Lower temperature for more consistent results
-        max_tokens: 500,
-      });
+    // Initialize results object
+    const result = {
+      type: 'unknown',
+      metrics: [],
+    };
 
-      try {
-        return JSON.parse(response.choices[0].message.content);
-      } catch (e) {
-        Logger.error('Failed to parse intent JSON:', {
-          error: e.message,
-          response: response.choices[0].message.content,
-        });
-        return { type: 'unknown' };
-      }
-    } catch (error) {
-      Logger.error('Error detecting intent:', { error: error.message });
-      return { type: 'unknown' };
+    // Check for common blockchain names
+    if (q.includes(' eth') || q.includes('ethereum')) {
+      result.chain = 'ETH';
+    } else if (q.includes(' bsc') || q.includes('binance')) {
+      result.chain = 'BSC';
+    } else if (q.includes(' near')) {
+      result.chain = 'NEAR';
     }
+
+    // Check for common metrics
+    if (q.includes('price') || q.includes('cost') || q.includes('worth')) {
+      result.metrics.push('price');
+    }
+    if (q.includes('holder') || q.includes('community')) {
+      result.metrics.push('holders');
+    }
+    if (q.includes('market cap') || q.includes('marketcap')) {
+      result.metrics.push('market_cap');
+    }
+    if (q.includes('volume') || q.includes('trading')) {
+      result.metrics.push('transfers_24h');
+    }
+
+    // Detect intent type based on keywords
+    if (
+      q.includes('find') ||
+      q.includes('discover') ||
+      q.includes('search') ||
+      q.includes('list') ||
+      q.includes('show me') ||
+      q.includes('what coins')
+    ) {
+      result.type = 'discovery';
+    } else if (q.includes('analyze') || q.includes('details') || q.includes('about')) {
+      result.type = 'analysis';
+
+      // Try to extract coin name for analysis queries
+      const coinMatches = q.match(/about\s+([^\s]+)|analyze\s+([^\s]+)|details\s+of\s+([^\s]+)/i);
+      if (coinMatches) {
+        const coinName = coinMatches[1] || coinMatches[2] || coinMatches[3];
+        if (coinName) result.coin_name = coinName;
+      }
+    } else if (q.includes('compare') || q.includes('versus') || q.includes(' vs ')) {
+      result.type = 'comparison';
+    }
+
+    // Default to discovery if we couldn't determine intent
+    if (result.type === 'unknown') {
+      result.type = 'discovery';
+    }
+
+    // If we identified the query as about buying with a specific amount
+    if (q.includes('buy') || q.includes('purchase')) {
+      result.type = 'discovery';
+
+      // Try to extract price thresholds
+      const priceMatches = q.match(/(\d+(?:\.\d+)?)\s*(usd|dollars|\$|eth|bnb)/i);
+      if (priceMatches) {
+        const amount = parseFloat(priceMatches[1]);
+        const currency = priceMatches[2].toLowerCase();
+
+        // Set threshold for discovery
+        if (!result.thresholds) result.thresholds = {};
+
+        // For simplicity, assume they want coins under this price
+        result.thresholds.price = {
+          operator: '<',
+          value: amount,
+        };
+      }
+    }
+
+    Logger.debug('Fallback intent detection result', { result: JSON.stringify(result) });
+    return result;
   }
 
   /**

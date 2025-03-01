@@ -13,12 +13,20 @@ const {
   getChangeIndicator,
   getExplorerLink,
 } = require('../src/utils/formatters');
+const RateLimitService = require('../src/services/rateLimit');
+const AIProviderManager = require('../src/services/aiProvider');
+const fs = require('fs');
+const path = require('path');
 
 // Initialize database and alert table
 Database.initialize_database();
 AlertModel.createTable().catch((err) => {
   Logger.error('Failed to create alerts table:', { error: err.message });
 });
+
+// Bot configuration constants
+const BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME || '';
+const BOT_PROFILE_PHOTO_PATH = path.join(process.cwd(), 'assets', 'bot-profile.jpg');
 
 module.exports = async (req, res) => {
   Logger.info('Webhook received. Processing update...');
@@ -36,6 +44,13 @@ module.exports = async (req, res) => {
     // Log the update for debugging
     Logger.debug('Update received:', { body: JSON.stringify(req.body).substring(0, 200) + '...' });
 
+    // Check if the request is for initial setup (can be triggered by admin)
+    const isSetupRequest = req.query && req.query.setup === 'true';
+    if (isSetupRequest) {
+      await setupBot(bot);
+      return res.status(200).send('Bot setup completed');
+    }
+
     // Register handlers (these run for each webhook request)
     registerBotHandlers(bot);
 
@@ -52,17 +67,109 @@ module.exports = async (req, res) => {
   }
 };
 
-function registerBotHandlers(bot) {
-  // Register bot handlers (similar to what was in telegram_bot.py)
-  bot.start((ctx) => {
-    return ctx.reply(
-      `Hello ${ctx.from.first_name}! Welcome to the Meme Coin Analysis Bot.\n\n` +
-        `Use /analyze <coin_name> or /analyze <symbol> to get metrics for a specific coin.\n\n` +
-        `You can also set alerts with /setalert command or try our AI features with /discover.\n\n` +
-        `Type /help to see all available commands.`
+/**
+ * Set up the bot's profile and initial configuration
+ * This is meant to be run once during deployment or when configuration changes
+ * @param {Telegraf} bot - The Telegraf bot instance
+ */
+async function setupBot(bot) {
+  try {
+    Logger.info('Setting up bot profile and configuration...');
+
+    // Set bot commands
+    await bot.telegram.setMyCommands([
+      { command: 'start', description: 'Start the bot' },
+      { command: 'help', description: 'Show help information' },
+      { command: 'analyze', description: 'Analyze a specific coin' },
+      { command: 'discover', description: 'Find coins matching specific criteria' },
+      { command: 'similar', description: 'Find coins similar to a specific one' },
+      { command: 'trend', description: 'Get AI-powered trend analysis' },
+      { command: 'risk', description: 'Get risk assessment for a coin' },
+      { command: 'setalert', description: 'Set price/metric alerts' },
+      { command: 'myalerts', description: 'View your active alerts' },
+      { command: 'share', description: 'Get your referral link to share with friends' },
+      { command: 'referrals', description: 'View your referrals and points' },
+      { command: 'usage', description: 'Check your API usage stats' },
+    ]);
+
+    // Set bot profile photo if the file exists
+    if (fs.existsSync(BOT_PROFILE_PHOTO_PATH)) {
+      try {
+        Logger.info('Setting bot profile photo...');
+        // Read the profile photo file
+        const photoBuffer = fs.readFileSync(BOT_PROFILE_PHOTO_PATH);
+        // Upload the photo to Telegram
+        await bot.telegram.setProfilePhoto(photoBuffer);
+        Logger.info('Bot profile photo set successfully');
+      } catch (photoError) {
+        Logger.error('Error setting bot profile photo:', {
+          error: photoError.message,
+          path: BOT_PROFILE_PHOTO_PATH,
+        });
+      }
+    } else {
+      Logger.warn('Bot profile photo not found at path:', { path: BOT_PROFILE_PHOTO_PATH });
+    }
+
+    // Set bot description
+    await bot.telegram.setMyDescription(
+      'The ultimate AI-powered meme coin analytics bot. Track prices, holders, market caps, and receive personalized alerts. Discover new coins based on custom criteria and get AI-powered trend predictions.'
     );
+
+    // Set bot short description (shown in chats)
+    await bot.telegram.setMyShortDescription('AI-powered meme coin analytics and discovery');
+
+    Logger.info('Bot setup completed successfully');
+  } catch (error) {
+    Logger.error('Error during bot setup:', { error: error.message });
+    throw error;
+  }
+}
+
+function registerBotHandlers(bot) {
+  // User tracking middleware
+  bot.use(async (ctx, next) => {
+    if (ctx.from) {
+      // Extract referral code from deep link if present
+      let referralCode = null;
+
+      if (ctx.message && ctx.message.text && ctx.message.text.startsWith('/start ')) {
+        referralCode = ctx.message.text.split(' ')[1];
+      }
+
+      // Register/update user in database
+      Database.registerUser(ctx.from, referralCode);
+    }
+
+    return next();
   });
 
+  // Start command with referral handling
+  bot.start((ctx) => {
+    const startMessage = ctx.message.text;
+    let referralCode = null;
+    let welcomeMessage = `Hello ${ctx.from.first_name}! Welcome to the Meme Coin Analysis Bot.\n\n`;
+
+    // Check if this contains a referral code
+    if (startMessage.includes(' ')) {
+      referralCode = startMessage.split(' ')[1];
+
+      // Try to find referrer
+      const referrer = Database.getUserByReferralCode(referralCode);
+      if (referrer) {
+        welcomeMessage += `You were invited by a friend! 👋\n\n`;
+      }
+    }
+
+    welcomeMessage +=
+      `Use /analyze <coin_name> or /analyze <symbol> to get metrics for a specific coin.\n\n` +
+      `You can also set alerts with /setalert command or try our AI features with /discover.\n\n` +
+      `Type /help to see all available commands.`;
+
+    return ctx.reply(welcomeMessage);
+  });
+
+  // Enhanced help command
   bot.help((ctx) => {
     return ctx.reply(
       'Meme Coin Analysis Bot Commands:\n\n' +
@@ -76,6 +183,10 @@ function registerBotHandlers(bot) {
         '/similar <coin> - Find coins similar to a specific one\n' +
         '/trend <coin> - Get AI-powered trend analysis\n' +
         '/risk <coin> - Get detailed risk assessment\n\n' +
+        '👥 Community Features:\n' +
+        '/share - Get your referral link to share with friends\n' +
+        '/referrals - View your referrals and earned points\n' +
+        '/usage - Check your API usage stats\n\n' +
         '/help - Show this help message\n' +
         '/start - Start the bot'
     );
@@ -234,312 +345,500 @@ function registerBotHandlers(bot) {
 
   // Add AI-powered discovery
   bot.command('discover', async (ctx) => {
-    const query = ctx.message.text.split(' ').slice(1).join(' ');
-
-    if (!query || query.trim() === '') {
-      return ctx.reply(
-        "Please provide some details about what you're looking for.\n\n" +
-          'Example queries:\n' +
-          '- /discover coins with over 1000 holders\n' +
-          '- /discover most active BSC coins\n' +
-          '- /discover coins with low market cap\n'
-      );
-    }
-
     try {
-      // Send typing indicator
-      ctx.telegram.sendChatAction(ctx.chat.id, 'typing');
-      Logger.info(`User ${ctx.from.id} using discover: ${query}`);
+      // Extract the query from the message
+      const query = ctx.message.text.replace('/discover', '').trim();
 
-      const results = await NLPEngine.processQuery(query);
-
-      if (results.type === 'discovery' && results.coins.length > 0) {
-        const reply = [
-          `🔍 *Found ${results.matchCount} coins matching your criteria*\n`,
-          `Here are the top ${results.coins.length} results:\n`,
-        ];
-
-        for (const [i, coin] of results.coins.entries()) {
-          const risk = await RiskAnalyzer.calculateRiskScore(coin);
-          reply.push(
-            `${i + 1}. *${coin.name}* (${coin.symbol}) - ${coin.chain}\n` +
-              `   💰 Price: ${formatPrice(coin.price)}\n` +
-              `   👥 Holders: ${formatNumber(coin.holders)}\n` +
-              `   ⚠️ Risk: ${risk.category} (${risk.score}/100)\n`
-          );
-        }
-
-        reply.push(`\nUse /analyze <coin name> for detailed metrics on any of these coins.`);
-
-        return ctx.reply(reply.join(''), { parse_mode: 'Markdown' });
-      } else {
-        return ctx.reply(
-          "I couldn't find any coins matching those criteria. Try different search terms."
+      if (!query) {
+        await ctx.reply(
+          'Please provide search criteria. For example:\n/discover coins with over 1000 holders on BSC'
         );
+        return;
       }
+
+      const userId = ctx.message.from.id.toString();
+
+      // Check rate limits before proceeding
+      if (!RateLimitService.canMakeRequest(userId, 'nlp')) {
+        await ctx.reply(
+          'You have reached your daily limit for discover commands. Try again tomorrow.'
+        );
+        return;
+      }
+
+      await ctx.reply('Searching for coins matching your criteria...');
+
+      // Process the query to extract intent and entities
+      const processed = await NLPEngine.processQuery(query, userId);
+
+      if (processed.type !== 'discovery') {
+        await ctx.reply(
+          "I couldn't understand your search criteria. Please try rephrasing your query or use simpler terms."
+        );
+        return;
+      }
+
+      // Handle the discovery intent
+      const results = await NLPEngine.handleDiscoveryQuery(query, processed);
+
+      if (!results.coins || results.coins.length === 0) {
+        await ctx.reply('No coins found matching your criteria.');
+        return;
+      }
+
+      // Format the results
+      let message = `Found ${results.matchCount} coins matching your criteria. Here are the top results:\n\n`;
+
+      for (const coin of results.coins) {
+        // Get risk score for each coin
+        const riskScore = await RiskAnalyzer.calculateRiskScore(coin);
+
+        message += `${coin.name} (${coin.symbol})\n`;
+        message += `Price: $${formatNumber(coin.price)}\n`;
+        message += `Holders: ${formatNumber(coin.holders)}\n`;
+        message += `Market Cap: $${formatNumber(coin.market_cap)}\n`;
+        message += `Risk: ${riskScore.riskLevel}\n\n`;
+      }
+
+      await ctx.reply(message);
     } catch (error) {
-      Logger.error('Error in discover command:', { error: error.message, query });
-      return ctx.reply('Sorry, I encountered an error while processing your discovery request.');
+      Logger.error('Error handling discover command:', { error: error.message });
+      await ctx.reply('Sorry, there was an error processing your search.');
     }
   });
 
   // Add similarity recommendation command
   bot.command('similar', async (ctx) => {
-    const query = ctx.message.text.split(' ').slice(1).join(' ');
-
-    if (!query) {
-      return ctx.reply(
-        'Please provide a coin name or symbol to find similar coins.\n\nExample: /similar DOGE'
-      );
-    }
-
     try {
-      // Find the requested coin
-      const coin = await Database.search_coin(query);
+      // Extract the coin name from the message
+      const coinName = ctx.message.text.replace('/similar', '').trim();
 
-      if (!coin) {
-        return ctx.reply(
-          `Could not find a coin matching '${query}'. Try a different name or symbol.`
-        );
+      if (!coinName) {
+        await ctx.reply('Please provide a coin name or symbol. For example:\n/similar PEPE');
+        return;
       }
 
-      // Send typing indicator while processing
-      ctx.telegram.sendChatAction(ctx.chat.id, 'typing');
-      Logger.info(`User ${ctx.from.id} finding similar coins to: ${coin.name}`);
+      const userId = ctx.message.from.id.toString();
+
+      // Check rate limits before proceeding
+      if (!RateLimitService.canMakeRequest(userId, 'similarity')) {
+        await ctx.reply(
+          'You have reached your daily limit for similarity commands. Try again tomorrow.'
+        );
+        return;
+      }
+
+      await ctx.reply(`Searching for coins similar to ${coinName}...`);
+
+      // Search for the coin in the database
+      const searchResults = await Database.search_coins(coinName);
+
+      if (!searchResults || searchResults.length === 0) {
+        await ctx.reply(`No coins found matching "${coinName}".`);
+        return;
+      }
+
+      const coin = searchResults[0]; // Use the first match
 
       // Find similar coins
-      const similarCoins = await SimilarityEngine.findSimilarCoins(coin.contract);
+      const similarCoins = await SimilarityEngine.findSimilarCoins(coin.contract, 5, userId);
 
-      if (similarCoins.length === 0) {
-        return ctx.reply(`I couldn't find any coins similar to ${coin.name} in my database.`);
+      if (!similarCoins || similarCoins.length === 0) {
+        await ctx.reply(`No similar coins found for ${coin.name}.`);
+        return;
       }
 
-      // Format response
-      const reply = [`🔍 *Coins similar to ${coin.name} (${coin.symbol})*\n\n`];
+      // Format the results
+      let message = `Coins similar to ${coin.name} (${coin.symbol}):\n\n`;
 
-      for (const [i, similar] of similarCoins.entries()) {
-        reply.push(
-          `${i + 1}. *${similar.name}* (${similar.symbol})\n` +
-            `   💰 Price: ${formatPrice(similar.price)}\n` +
-            `   👥 Holders: ${formatNumber(similar.holders)}\n`
-        );
+      for (const similar of similarCoins) {
+        message += `${similar.name} (${similar.symbol})\n`;
+        message += `Price: $${formatNumber(similar.price)}\n`;
+        message += `Holders: ${formatNumber(similar.holders)}\n`;
+        message += `Market Cap: $${formatNumber(similar.market_cap)}\n\n`;
       }
 
-      reply.push(`\nUse /analyze <coin name> to get full details on any of these coins.`);
-
-      return ctx.reply(reply.join(''), { parse_mode: 'Markdown' });
+      await ctx.reply(message);
     } catch (error) {
-      Logger.error('Error in similar command:', { error: error.message, query });
-      return ctx.reply('Sorry, an error occurred while finding similar coins.');
+      Logger.error('Error handling similar command:', { error: error.message });
+      await ctx.reply('Sorry, there was an error finding similar coins.');
     }
   });
 
   // Add AI trend analysis command
   bot.command('trend', async (ctx) => {
-    const query = ctx.message.text.split(' ').slice(1).join(' ');
-
-    if (!query) {
-      return ctx.reply(
-        'Please provide a coin name or symbol to analyze trends.\n\nExample: /trend DOGE'
-      );
-    }
-
     try {
-      // Find the requested coin
-      const coin = await Database.search_coin(query);
+      // Extract the coin name from the message
+      const coinName = ctx.message.text.replace('/trend', '').trim();
 
-      if (!coin) {
-        return ctx.reply(
-          `Could not find a coin matching '${query}'. Try a different name or symbol.`
-        );
+      if (!coinName) {
+        await ctx.reply('Please provide a coin name or symbol. For example:\n/trend PEPE');
+        return;
       }
 
-      // Send typing indicator
-      ctx.telegram.sendChatAction(ctx.chat.id, 'typing');
-      Logger.info(`User ${ctx.from.id} requesting trend analysis for: ${coin.name}`);
+      const userId = ctx.message.from.id.toString();
+
+      // Check rate limits before proceeding
+      if (!RateLimitService.canMakeRequest(userId, 'trend')) {
+        await ctx.reply(
+          'You have reached your daily limit for trend commands. Try again tomorrow.'
+        );
+        return;
+      }
+
+      await ctx.reply(`Analyzing trends for ${coinName}...`);
+
+      // Search for the coin in the database
+      const searchResults = await Database.search_coins(coinName);
+
+      if (!searchResults || searchResults.length === 0) {
+        await ctx.reply(`No coins found matching "${coinName}".`);
+        return;
+      }
+
+      const coin = searchResults[0]; // Use the first match
 
       // Get trend analysis
-      const trendData = await TrendAnalyzer.buildHolderGrowthModel(coin.contract);
+      const trendData = await TrendAnalyzer.analyzeTrend(coin.contract);
 
       if (!trendData) {
-        return ctx.reply(
-          `Not enough historical data for ${coin.name} to perform trend analysis. Try again later.`
-        );
+        await ctx.reply(`Not enough historical data to analyze trends for ${coin.name}.`);
+        return;
       }
 
-      // Format response
-      const direction =
-        trendData.trendDirection === 'up'
-          ? '📈 Upward'
-          : trendData.trendDirection === 'down'
-          ? '📉 Downward'
-          : '➡️ Stable';
-      const emoji =
-        trendData.trendDirection === 'up'
-          ? '🟢'
-          : trendData.trendDirection === 'down'
-          ? '🔴'
-          : '🟡';
+      // Format the results
+      let message = `Trend Analysis for ${coin.name} (${coin.symbol}):\n\n`;
 
-      const reply = [
-        `🔮 *Trend Analysis: ${coin.name} (${coin.symbol})*\n\n`,
-        `${emoji} *Holder Trend:* ${direction}\n`,
-        `⚖️ *Confidence:* ${trendData.confidence.toFixed(1)}%\n\n`,
-        `*Projected Growth Rates:*\n`,
-      ];
+      message += `Price Trend: ${trendData.priceTrend.direction}\n`;
+      message += `Projected Growth: ${trendData.priceTrend.projectedGrowth}%\n`;
+      message += `Confidence: ${trendData.priceTrend.confidence}%\n\n`;
 
-      for (let i = 0; i < trendData.growthRates.length; i++) {
-        const day = i + 1;
-        const rate = trendData.growthRates[i];
-        const sign = rate >= 0 ? '+' : '';
-        reply.push(`Day ${day}: ${sign}${rate.toFixed(2)}%\n`);
-      }
+      message += `Holder Trend: ${trendData.holderTrend.direction}\n`;
+      message += `Projected Growth: ${trendData.holderTrend.projectedGrowth}%\n`;
+      message += `Confidence: ${trendData.holderTrend.confidence}%\n\n`;
 
-      reply.push(
-        `\n*Note:* This is an experimental prediction based on historical data and should not be considered financial advice.`
-      );
+      message += `Overall Outlook: ${trendData.outlook}\n`;
 
-      return ctx.reply(reply.join(''), { parse_mode: 'Markdown' });
+      await ctx.reply(message);
+
+      // Track this request for rate limiting
+      RateLimitService.incrementRequestCount(userId, 'trend');
     } catch (error) {
-      Logger.error('Error in trend command:', { error: error.message, query });
-      return ctx.reply('Sorry, an error occurred during trend analysis.');
+      Logger.error('Error handling trend command:', { error: error.message });
+      await ctx.reply('Sorry, there was an error analyzing trends.');
     }
   });
 
   // Add risk assessment command
   bot.command('risk', async (ctx) => {
-    const query = ctx.message.text.split(' ').slice(1).join(' ');
+    try {
+      // Extract the coin name from the message
+      const coinName = ctx.message.text.replace('/risk', '').trim();
 
-    if (!query) {
+      if (!coinName) {
+        await ctx.reply('Please provide a coin name or symbol. For example:\n/risk PEPE');
+        return;
+      }
+
+      const userId = ctx.message.from.id.toString();
+
+      // Check rate limits before proceeding
+      if (!RateLimitService.canMakeRequest(userId, 'risk')) {
+        await ctx.reply('You have reached your daily limit for risk commands. Try again tomorrow.');
+        return;
+      }
+
+      await ctx.reply(`Assessing risk for ${coinName}...`);
+
+      // Search for the coin in the database
+      const searchResults = await Database.search_coins(coinName);
+
+      if (!searchResults || searchResults.length === 0) {
+        await ctx.reply(`No coins found matching "${coinName}".`);
+        return;
+      }
+
+      const coin = searchResults[0]; // Use the first match
+
+      // Get risk assessment
+      const riskScore = await RiskAnalyzer.calculateRiskScore(coin);
+
+      // Format the results
+      let message = `Risk Assessment for ${coin.name} (${coin.symbol}):\n\n`;
+
+      message += `Overall Risk: ${riskScore.riskLevel}\n`;
+      message += `Risk Score: ${riskScore.score.toFixed(2)}/10\n\n`;
+
+      message += `Risk Factors:\n`;
+      message += `- Liquidity Risk: ${riskScore.factors.liquidity.toFixed(2)}/10\n`;
+      message += `- Volatility Risk: ${riskScore.factors.volatility.toFixed(2)}/10\n`;
+      message += `- Holder Risk: ${riskScore.factors.holders.toFixed(2)}/10\n`;
+      message += `- Age Risk: ${riskScore.factors.age.toFixed(2)}/10\n`;
+      message += `- Holder Change Risk: ${riskScore.factors.holderChange.toFixed(2)}/10\n\n`;
+
+      message += `Remember: Always do your own research before investing.`;
+
+      await ctx.reply(message);
+
+      // Track this request for rate limiting
+      RateLimitService.incrementRequestCount(userId, 'risk');
+    } catch (error) {
+      Logger.error('Error handling risk command:', { error: error.message });
+      await ctx.reply('Sorry, there was an error assessing risk.');
+    }
+  });
+
+  // Share command - generates referral link
+  bot.command('share', async (ctx) => {
+    // Get or register the user
+    const user = Database.getUser(ctx.from.id) || Database.registerUser(ctx.from);
+
+    if (!user || !user.referral_code) {
+      return ctx.reply('❌ Error generating your referral link. Please try again later.');
+    }
+
+    const referralLink = `https://t.me/${BOT_USERNAME}?start=${user.referral_code}`;
+
+    const shareMessage =
+      `🔗 *Share this bot with friends!*\n\n` +
+      `Use your personal referral link to invite friends to use this meme coin analytics bot. You'll earn points for each friend who joins!\n\n` +
+      `Your referral link:\n` +
+      `${referralLink}\n\n` +
+      `*Current points:* ${user.points || 0}\n` +
+      `Use /referrals to see details of your referrals.`;
+
+    // Create an inline keyboard for easy sharing
+    const keyboard = {
+      inline_keyboard: [
+        [
+          {
+            text: '📱 Share on Telegram',
+            url: `https://t.me/share/url?url=${encodeURIComponent(
+              referralLink
+            )}&text=${encodeURIComponent('Check out this awesome meme coin analytics bot!')}`,
+          },
+        ],
+        [
+          {
+            text: '📋 Copy Link',
+            callback_data: 'copy_link',
+          },
+        ],
+      ],
+    };
+
+    return ctx.reply(shareMessage, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+  });
+
+  // Handle the "Copy Link" button
+  bot.action('copy_link', async (ctx) => {
+    const user = Database.getUser(ctx.from.id);
+    if (!user || !user.referral_code) {
+      return ctx.answerCbQuery('Error retrieving your referral link.');
+    }
+
+    const referralLink = `https://t.me/${BOT_USERNAME}?start=${user.referral_code}`;
+
+    // Let the user know we're "copying" (they actually need to copy it manually)
+    await ctx.answerCbQuery('Copy this link to share with friends!');
+
+    // Send the link as plain text so it's easy to copy
+    return ctx.reply(`Here's your referral link:\n\n${referralLink}`);
+  });
+
+  // Referrals command - show referral stats
+  bot.command('referrals', async (ctx) => {
+    const user = Database.getUser(ctx.from.id);
+
+    if (!user) {
       return ctx.reply(
-        'Please provide a coin name or symbol to assess risk.\n\nExample: /risk DOGE'
+        'You need to start using the bot before checking referrals. Use /start to begin.'
       );
     }
 
-    try {
-      // Find the requested coin
-      const coin = await Database.search_coin(query);
+    const referrals = Database.getUserReferrals(ctx.from.id);
+    const totalPoints = user.points || 0;
 
-      if (!coin) {
-        return ctx.reply(
-          `Could not find a coin matching '${query}'. Try a different name or symbol.`
-        );
+    let message = `📊 *Your Referral Stats*\n\n`;
+    message += `Points: ${totalPoints}\n`;
+    message += `Total Referrals: ${referrals.length}\n\n`;
+
+    if (referrals.length > 0) {
+      message += `*Your Referrals:*\n`;
+      referrals.slice(0, 10).forEach((ref, index) => {
+        const name = ref.username || ref.first_name || 'Anonymous';
+        const date = new Date(ref.date * 1000).toLocaleDateString();
+        message += `${index + 1}. ${name} - Joined: ${date}\n`;
+      });
+
+      if (referrals.length > 10) {
+        message += `\n...and ${referrals.length - 10} more`;
+      }
+    } else {
+      message += `You haven't referred anyone yet. Use /share to get your referral link!`;
+    }
+
+    message += `\n\n💡 *Earn points by inviting friends!*`;
+
+    return ctx.reply(message, { parse_mode: 'Markdown' });
+  });
+
+  // Usage command - show API usage stats
+  bot.command('usage', async (ctx) => {
+    const stats = RateLimitService.getUserStats(ctx.from.id.toString());
+
+    let message = `📊 *Your API Usage Stats*\n\n`;
+
+    Object.entries(stats).forEach(([apiType, data]) => {
+      const prettyName = apiType.charAt(0).toUpperCase() + apiType.slice(1);
+      message += `${prettyName}: ${data.count}/${data.limit} (${data.remaining} remaining)\n`;
+    });
+
+    message += `\n*Usage resets daily*`;
+
+    // Check if user is exempt from limits
+    if (RateLimitService.isExemptUser(ctx.from.id.toString())) {
+      message += `\n\n✨ You have unlimited access`;
+    }
+
+    return ctx.reply(message, { parse_mode: 'Markdown' });
+  });
+
+  // Admin-only command to check AI provider status
+  bot.command('aistatus', async (ctx) => {
+    // Check if user is admin
+    if (!RateLimitService.isExemptUser(ctx.from.id.toString())) {
+      return ctx.reply('This command is only available to administrators.');
+    }
+
+    const status = AIProviderManager.getStatus();
+
+    let message = `🤖 *AI Provider Status*\n\n`;
+
+    Object.entries(status).forEach(([provider, data]) => {
+      message += `*${provider}*\n`;
+      message += `Available: ${data.available ? '✅' : '❌'}\n`;
+      message += `Error Count: ${data.errorCount}\n`;
+
+      if (data.lastError) {
+        message += `Last Error: ${data.lastError.substring(0, 50)}${
+          data.lastError.length > 50 ? '...' : ''
+        }\n`;
+
+        const lastErrorTime = new Date(data.lastErrorTime).toLocaleString();
+        message += `Last Error Time: ${lastErrorTime}\n`;
       }
 
-      // Send typing indicator
-      ctx.telegram.sendChatAction(ctx.chat.id, 'typing');
-      Logger.info(`User ${ctx.from.id} requesting risk assessment for: ${coin.name}`);
+      message += `\n`;
+    });
 
-      // Calculate risk profile
-      const risk = await RiskAnalyzer.calculateRiskScore(coin);
-
-      // Generate risk visualization
-      const riskBar = generateRiskBar(risk.score);
-
-      // Format response
-      const reply = [
-        `⚠️ *Risk Assessment: ${coin.name} (${coin.symbol})*\n\n`,
-        `*Overall Risk:* ${risk.category} (${risk.score}/100)\n`,
-        `${riskBar}\n\n`,
-        `*Risk Factors:*\n`,
-        `👥 Holder Concentration: ${risk.factors.holderConcentration.toFixed(0)}/100\n`,
-        `📊 Price Volatility: ${risk.factors.priceVolatility.toFixed(0)}/100\n`,
-        `💧 Liquidity: ${risk.factors.liquidity.toFixed(0)}/100\n`,
-        `🕒 Age Factor: ${risk.factors.age.toFixed(0)}/100\n`,
-        `📈 Holder Stability: ${risk.factors.holderChange.toFixed(0)}/100\n\n`,
-        `*Note:* Lower scores represent lower risk. This analysis is based on on-chain metrics and historical data patterns.`,
-      ];
-
-      return ctx.reply(reply.join(''), { parse_mode: 'Markdown' });
-    } catch (error) {
-      Logger.error('Error in risk command:', { error: error.message, query });
-      return ctx.reply('Sorry, an error occurred during risk assessment.');
-    }
+    return ctx.reply(message, { parse_mode: 'Markdown' });
   });
 
   // Natural language query handler
   bot.on('text', async (ctx) => {
-    const text = ctx.message.text;
-
-    // Skip if it's a command
-    if (text.startsWith('/')) return;
-
     try {
-      // Simple heuristic to check if user is asking about meme coins
-      const relevantTerms = [
-        'coin',
-        'token',
-        'crypto',
-        'meme',
-        'investment',
-        'holder',
-        'price',
-        'market',
-      ];
-      const isRelevant = relevantTerms.some((term) => text.toLowerCase().includes(term));
-
-      if (!isRelevant) return;
-
-      // Log the query attempt
-      Logger.info(`Received natural language query: ${text.substring(0, 100)}`);
-
-      // Attempt to process as natural language query
-      ctx.telegram.sendChatAction(ctx.chat.id, 'typing');
-      const results = await NLPEngine.processQuery(text);
-
-      if (results.type !== 'unknown' && results.type !== 'error') {
-        // Handle based on intent type
-        switch (results.type) {
-          case 'discovery':
-            if (results.coins && results.coins.length > 0) {
-              const reply = [
-                `I found ${results.matchCount} coins matching your query. Here are the top results:\n\n`,
-              ];
-
-              for (const [i, coin] of results.coins.entries()) {
-                if (i < 3) {
-                  // Show top 3 for natural language queries
-                  reply.push(
-                    `${coin.name} (${coin.symbol}) - ${formatPrice(coin.price)}\n` +
-                      `Holders: ${formatNumber(coin.holders)}\n\n`
-                  );
-                }
-              }
-
-              reply.push(`Use /discover for more advanced searching options.`);
-
-              ctx.reply(reply.join(''));
-            }
-            break;
-
-          case 'analysis':
-            if (results.coin) {
-              // Redirect to analyze command
-              ctx.reply(
-                `I found information about ${results.coin.name}. Use /analyze ${results.coin.symbol} for full details.`
-              );
-            }
-            break;
-
-          case 'comparison':
-            if (results.coins && results.coins.length >= 2) {
-              // Give a simple comparison
-              const reply = [`Here's a quick comparison:\n\n`];
-
-              for (const coin of results.coins) {
-                reply.push(`${coin.name} (${coin.symbol}):\n`);
-                reply.push(`Price: ${formatPrice(coin.price)}\n`);
-                reply.push(`Holders: ${formatNumber(coin.holders)}\n\n`);
-              }
-
-              ctx.reply(reply.join(''));
-            }
-            break;
-        }
+      // Ignore commands
+      if (ctx.message.text.startsWith('/')) {
+        return;
       }
+
+      const text = ctx.message.text.trim();
+      const userId = ctx.message.from.id.toString();
+
+      // Check rate limits before proceeding
+      if (!RateLimitService.canMakeRequest(userId, 'nlp')) {
+        await ctx.reply(
+          'You have reached your daily limit for AI queries. Try again tomorrow or use basic commands.'
+        );
+        return;
+      }
+
+      // Process the natural language query
+      const processed = await NLPEngine.processQuery(text, userId);
+
+      // Log whether we're using fallback or not
+      if (processed.is_fallback) {
+        Logger.info('Using fallback NLP processing for query', {
+          query: text.substring(0, 50),
+          intent: processed.type,
+        });
+      }
+
+      // Handle different intent types
+      switch (processed.type) {
+        case 'discovery':
+          // Process discovery intent
+          const results = await NLPEngine.handleDiscoveryQuery(text, processed);
+
+          if (!results.coins || results.coins.length === 0) {
+            await ctx.reply('No coins found matching your criteria.');
+            return;
+          }
+
+          // Format the results
+          let message = `Found ${results.matchCount} coins matching your criteria. Here are the top results:\n\n`;
+
+          for (const coin of results.coins) {
+            message += `${coin.name} (${coin.symbol})\n`;
+            message += `Price: $${formatNumber(coin.price)}\n`;
+            message += `Holders: ${formatNumber(coin.holders)}\n`;
+            message += `Market Cap: $${formatNumber(coin.market_cap)}\n\n`;
+          }
+
+          await ctx.reply(message);
+          break;
+
+        case 'analysis':
+          // Extract coin name if available
+          if (!processed.coin_name) {
+            await ctx.reply('Please specify which coin you want to analyze.');
+            return;
+          }
+
+          // Search for the coin
+          const searchResults = await Database.search_coins(processed.coin_name);
+
+          if (!searchResults || searchResults.length === 0) {
+            await ctx.reply(`No coins found matching "${processed.coin_name}".`);
+            return;
+          }
+
+          const coin = searchResults[0];
+
+          // Format basic coin info
+          let coinInfo = `${coin.name} (${coin.symbol}):\n\n`;
+          coinInfo += `Price: $${formatNumber(coin.price)}\n`;
+          coinInfo += `Holders: ${formatNumber(coin.holders)}\n`;
+          coinInfo += `Market Cap: $${formatNumber(coin.market_cap)}\n`;
+          coinInfo += `24h Transfers: ${formatNumber(coin.transfers_24h)}\n\n`;
+
+          // Add risk assessment
+          const riskScore = await RiskAnalyzer.calculateRiskScore(coin);
+          coinInfo += `Risk Level: ${riskScore.riskLevel}\n`;
+
+          await ctx.reply(coinInfo);
+          break;
+
+        case 'comparison':
+          await ctx.reply('Coin comparison is coming soon!');
+          break;
+
+        default:
+          // If we couldn't determine intent, give a generic response
+          await ctx.reply(
+            "I'm not sure what you're asking. Try using specific commands like /discover, /similar, /trend, or /risk."
+          );
+      }
+
+      // Track this request for rate limiting
+      RateLimitService.incrementRequestCount(userId, 'nlp');
     } catch (error) {
-      Logger.error('Error processing natural language query:', { error: error.message });
-      // Don't reply on error for natural language to avoid spam
+      Logger.error('Error handling text message:', { error: error.message });
+      await ctx.reply('Sorry, I encountered an error processing your message.');
     }
   });
 

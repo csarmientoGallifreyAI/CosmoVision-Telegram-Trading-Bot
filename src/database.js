@@ -49,6 +49,33 @@ class Database {
         );
       `);
 
+      // Create users table for referrals and profile settings
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS users (
+          user_id TEXT PRIMARY KEY,
+          username TEXT,
+          first_name TEXT,
+          join_date INTEGER,
+          referred_by TEXT,
+          referral_code TEXT UNIQUE,
+          points INTEGER DEFAULT 0,
+          settings TEXT
+        );
+      `);
+
+      // Create referrals table to track successful referrals
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS referrals (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          referrer_id TEXT NOT NULL,
+          referred_id TEXT NOT NULL,
+          date INTEGER,
+          status TEXT DEFAULT 'pending',
+          reward_claimed INTEGER DEFAULT 0,
+          UNIQUE(referrer_id, referred_id)
+        );
+      `);
+
       // Add new columns if they don't exist
       if (!columns.includes('market_cap')) {
         Logger.info('Adding market_cap column to coins table');
@@ -501,6 +528,219 @@ class Database {
     } catch (error) {
       Logger.error('Error fetching all embeddings:', { error: error.message });
       return [];
+    }
+  }
+
+  /**
+   * Register a new user or update existing user data
+   * @param {Object} user - User object from Telegram
+   * @param {string} referralCode - Optional referral code
+   * @returns {Object} - Created/updated user record
+   */
+  static registerUser(user, referralCode = null) {
+    try {
+      // Check if user exists
+      const existingUser = this.db
+        .prepare('SELECT * FROM users WHERE user_id = ?')
+        .get(user.id.toString());
+
+      if (existingUser) {
+        // Update user data
+        this.db
+          .prepare('UPDATE users SET username = ?, first_name = ? WHERE user_id = ?')
+          .run(user.username, user.first_name, user.id.toString());
+
+        return existingUser;
+      }
+
+      // Generate unique referral code for this user
+      const userReferralCode = this.generateReferralCode(user);
+
+      // Find referrer if code was provided
+      let referrerId = null;
+      if (referralCode) {
+        const referrer = this.db
+          .prepare('SELECT user_id FROM users WHERE referral_code = ?')
+          .get(referralCode);
+
+        if (referrer) {
+          referrerId = referrer.user_id;
+        }
+      }
+
+      // Insert new user
+      this.db
+        .prepare(
+          'INSERT INTO users (user_id, username, first_name, join_date, referred_by, referral_code, points) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        )
+        .run(
+          user.id.toString(),
+          user.username || '',
+          user.first_name || '',
+          Math.floor(Date.now() / 1000),
+          referrerId,
+          userReferralCode,
+          0
+        );
+
+      // Record the referral if applicable
+      if (referrerId) {
+        this.recordReferral(referrerId, user.id.toString());
+      }
+
+      return this.db.prepare('SELECT * FROM users WHERE user_id = ?').get(user.id.toString());
+    } catch (error) {
+      Logger.error('Error registering user:', { error: error.message, userId: user.id });
+      return null;
+    }
+  }
+
+  /**
+   * Generate a unique referral code for a user
+   * @param {Object} user - User object
+   * @returns {string} - Unique referral code
+   */
+  static generateReferralCode(user) {
+    // Generate a combination of username and random characters
+    const prefix = user.username
+      ? user.username.substring(0, 5)
+      : user.first_name
+      ? user.first_name.substring(0, 5)
+      : 'user';
+
+    // Add random characters
+    const randomChars = Math.random().toString(36).substring(2, 7);
+
+    // Combine them
+    const code = `${prefix}_${randomChars}`.replace(/[^a-zA-Z0-9_]/g, '');
+
+    return code;
+  }
+
+  /**
+   * Get a user by their Telegram ID
+   * @param {string} userId - Telegram user ID
+   * @returns {Object} - User record
+   */
+  static getUser(userId) {
+    try {
+      return this.db.prepare('SELECT * FROM users WHERE user_id = ?').get(userId.toString());
+    } catch (error) {
+      Logger.error('Error getting user:', { error: error.message, userId });
+      return null;
+    }
+  }
+
+  /**
+   * Get a user by their referral code
+   * @param {string} code - Referral code
+   * @returns {Object} - User record
+   */
+  static getUserByReferralCode(code) {
+    try {
+      return this.db.prepare('SELECT * FROM users WHERE referral_code = ?').get(code);
+    } catch (error) {
+      Logger.error('Error getting user by referral code:', { error: error.message, code });
+      return null;
+    }
+  }
+
+  /**
+   * Record a new referral
+   * @param {string} referrerId - User ID who referred
+   * @param {string} referredId - User ID who was referred
+   * @returns {boolean} - Success status
+   */
+  static recordReferral(referrerId, referredId) {
+    try {
+      // Record the referral
+      this.db
+        .prepare(
+          'INSERT OR IGNORE INTO referrals (referrer_id, referred_id, date, status) VALUES (?, ?, ?, ?)'
+        )
+        .run(
+          referrerId.toString(),
+          referredId.toString(),
+          Math.floor(Date.now() / 1000),
+          'completed'
+        );
+
+      // Award points to the referrer
+      this.db
+        .prepare('UPDATE users SET points = points + 10 WHERE user_id = ?')
+        .run(referrerId.toString());
+
+      return true;
+    } catch (error) {
+      Logger.error('Error recording referral:', {
+        error: error.message,
+        referrerId,
+        referredId,
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Get a user's referrals
+   * @param {string} userId - User ID
+   * @returns {Array} - List of referrals
+   */
+  static getUserReferrals(userId) {
+    try {
+      return this.db
+        .prepare(
+          `
+          SELECT r.*, u.username, u.first_name
+          FROM referrals r
+          JOIN users u ON r.referred_id = u.user_id
+          WHERE r.referrer_id = ?
+          ORDER BY r.date DESC
+        `
+        )
+        .all(userId.toString());
+    } catch (error) {
+      Logger.error('Error getting user referrals:', { error: error.message, userId });
+      return [];
+    }
+  }
+
+  /**
+   * Update user settings
+   * @param {string} userId - User ID
+   * @param {Object} settings - Settings object
+   * @returns {boolean} - Success status
+   */
+  static updateUserSettings(userId, settings) {
+    try {
+      this.db
+        .prepare('UPDATE users SET settings = ? WHERE user_id = ?')
+        .run(JSON.stringify(settings), userId.toString());
+      return true;
+    } catch (error) {
+      Logger.error('Error updating user settings:', { error: error.message, userId });
+      return false;
+    }
+  }
+
+  /**
+   * Get user settings
+   * @param {string} userId - User ID
+   * @returns {Object} - User settings
+   */
+  static getUserSettings(userId) {
+    try {
+      const user = this.db
+        .prepare('SELECT settings FROM users WHERE user_id = ?')
+        .get(userId.toString());
+
+      if (user && user.settings) {
+        return JSON.parse(user.settings);
+      }
+      return {};
+    } catch (error) {
+      Logger.error('Error getting user settings:', { error: error.message, userId });
+      return {};
     }
   }
 }

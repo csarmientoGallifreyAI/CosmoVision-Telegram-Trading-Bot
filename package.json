@@ -8,7 +8,9 @@
     "deploy": "vercel deploy --prod",
     "webhook": "node scripts/setup-webhook.js",
     "generate-key": "node scripts/generate-auth-key.js",
-    "generate-embeddings": "node scripts/generate-embeddings.js"
+    "generate-embeddings": "node scripts/generate-embeddings.js",
+    "setup-bot": "node scripts/setup-bot.js",
+    "start": "npm run webhook && npm run generate-embeddings && npm run setup-bot && npm run dev"
   },
   "dependencies": {
     "telegraf": "^4.15.3",
@@ -16,9 +18,12 @@
     "node-fetch": "^2.7.0",
     "near-api-js": "^2.1.4",
     "dotenv": "^16.3.1",
-    "openai": "^4.19.0",
+    "openai": "^4.28.0",
     "@tensorflow/tfjs": "^4.11.0",
-    "mathjs": "^11.11.1"
+    "mathjs": "^11.11.1",
+    "ml-regression-multivariate-linear": "^2.0.4",
+    "canvas": "^2.11.2",
+    "axios": "^1.6.2"
   },
   "devDependencies": {
     "vercel": "^32.6.1"
