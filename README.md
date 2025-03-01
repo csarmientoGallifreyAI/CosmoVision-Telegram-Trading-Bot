@@ -1,66 +1,124 @@
-# Meme Coin Analysis Telegram Bot
+# Cosmovision Telegram Bot
 
-A simple Telegram bot for analyzing meme coin opportunities on gra.fun, focusing on Binance Smart Chain (BSC) tokens.
+A Telegram bot that provides analysis and metrics for meme coins. The bot scrapes data from sources like gra.fun and blockchain APIs to provide valuable insights about meme coins.
 
 ## Features
 
-- Scrapes meme coin data from gra.fun
-- Retrieves on-chain metrics (holders, recent transfers) using BscScan API
-- Provides an easy-to-use Telegram bot interface
-- Low-cost implementation using free or affordable tools
+- Search for meme coins by name or symbol
+- Get price, holder count, and 24-hour transfer metrics
+- Analyze activity ratios to identify active vs. dormant tokens
+- Automatic data updates every 6 hours
 
-## Metrics Tracked
+## Technology
 
-- **Number of holders**: Indicates community size and adoption
-- **Recent trading activity**: Number of transfers in the last 24 hours
-- **Current price**: Current value of the coin
+- Node.js
+- Telegraf (Telegram Bot Framework)
+- SQLite (for local data storage)
+- Vercel serverless functions for deployment
 
-## Setup
+## Setup Instructions
 
-1. Clone this repository
+### Prerequisites
+
+- Node.js 14+
+- A Telegram Bot Token (get from [@BotFather](https://t.me/BotFather))
+- Etherscan API Key (optional, for blockchain data)
+- Vercel account for deployment
+
+### Local Development
+
+1. Clone the repository:
+
+```bash
+git clone git@github.com:csarmientoGallifreyAI/cosmovision_tg_bot.git
+cd cosmovision_tg_bot
+```
+
 2. Install dependencies:
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+npm install
+```
 
-   > **Note:** This project uses python-telegram-bot v13.15 which requires APScheduler v3.6.3 specifically. Using a different version of APScheduler will cause dependency conflicts.
+3. Create a `.env` file with your configuration:
 
-3. Copy `.env.example` to `.env` and fill in your API keys:
+```
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+ETHERSCAN_API_KEY=your_etherscan_api_key
+UPDATE_AUTH_KEY=a_secret_key_for_data_updates
+```
 
-   ```bash
-   cp .env.example .env
-   ```
+4. Run locally with Vercel dev:
 
-4. Create a Telegram bot using BotFather and get your token
-5. Get a free API key from BscScan
-6. Update the `.env` file with your tokens and keys
-7. Run the bot:
+```bash
+npm run dev
+```
 
-   ```bash
-   # Run from the project root as a module
-   python -m src.main
+### Deployment to Vercel
 
-   # Or run directly (now fixed to work from any directory)
-   python src/main.py
+1. Install Vercel CLI if you haven't already:
 
-   # Test mode (won't start the Telegram bot, useful for testing scraper/database)
-   python src/main.py --test
-   ```
+```bash
+npm install -g vercel
+```
 
-## Usage
+2. Login to Vercel:
 
-In Telegram, use the following commands:
+```bash
+vercel login
+```
 
-- `/analyze <coin_name>` or `/analyze <symbol>` - Get analysis for a specific coin
+3. Deploy the project:
 
-## Deployment
+```bash
+vercel --prod
+```
 
-The bot can be deployed on free tier services like:
+4. Set up your environment variables in the Vercel dashboard.
 
-- Heroku
-- PythonAnywhere
-- Railway
+5. Configure the Telegram webhook using the setup script:
+
+```bash
+node scripts/setup-webhook.js
+```
+
+## Webhook Setup
+
+After deployment, you need to configure your Telegram bot to use webhooks:
+
+1. Run the webhook setup script:
+
+```bash
+node scripts/setup-webhook.js
+```
+
+2. Follow the prompts to enter your bot token and webhook URL.
+
+3. Verify the webhook is working by visiting:
+   `https://your-vercel-app.vercel.app/api/test`
+
+## Architecture
+
+The bot is designed to work with Vercel's serverless functions:
+
+- `/api/telegram.js` - Handles Telegram webhook requests
+- `/api/update-data.js` - Scheduled job to update coin data
+- `/api/test.js` - Test endpoint to verify deployment
+
+Data is stored in an SQLite database, which is compatible with Vercel's read-only filesystem for the deployment.
+
+## Troubleshooting
+
+If your bot isn't responding, check the following:
+
+1. Verify webhook configuration using the Telegram API:
+   `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo`
+
+2. Check the Vercel logs for any errors.
+
+3. Make sure your environment variables are set correctly in Vercel.
+
+4. Test the `/api/test` endpoint to verify the API is working.
 
 ## License
 
