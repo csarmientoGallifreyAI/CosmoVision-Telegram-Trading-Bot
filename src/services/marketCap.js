@@ -82,6 +82,65 @@ class MarketCapService {
       throw error;
     }
   }
+
+  /**
+   * Get top coins by market cap
+   * @param {number} limit - Maximum number of coins to return
+   * @param {Object} options - Additional options
+   * @param {string} options.chain - Filter by specific blockchain (BSC, ETH, etc.)
+   * @param {number} options.minMarketCap - Minimum market cap to include
+   * @param {number} options.minHolders - Minimum holders to include
+   * @returns {Promise<Array>} - Array of top coins
+   */
+  static async getTopCoins(limit = 20, options = {}) {
+    try {
+      Logger.info(`Getting top ${limit} coins by market cap`);
+
+      if (!Database.db) {
+        Database.initialize_database();
+      }
+
+      // Build query with filters
+      let query = `
+        SELECT * FROM coins
+        WHERE market_cap IS NOT NULL AND market_cap > 0 AND price > 0
+      `;
+
+      const queryParams = [];
+
+      // Add chain filter if specified
+      if (options.chain) {
+        query += ` AND chain = ?`;
+        queryParams.push(options.chain);
+      }
+
+      // Add market cap filter if specified
+      if (options.minMarketCap) {
+        query += ` AND market_cap >= ?`;
+        queryParams.push(options.minMarketCap);
+      }
+
+      // Add holders filter if specified
+      if (options.minHolders) {
+        query += ` AND holders >= ?`;
+        queryParams.push(options.minHolders);
+      }
+
+      // Order by market cap and limit results
+      query += ` ORDER BY market_cap DESC LIMIT ?`;
+      queryParams.push(limit);
+
+      // Execute query
+      const stmt = Database.db.prepare(query);
+      const coins = stmt.all(...queryParams);
+
+      Logger.info(`Found ${coins.length} top coins by market cap`);
+      return coins;
+    } catch (error) {
+      Logger.error('Error getting top coins by market cap', { error: error.message });
+      return [];
+    }
+  }
 }
 
 module.exports = MarketCapService;
