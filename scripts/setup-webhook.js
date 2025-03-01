@@ -26,7 +26,7 @@ async function main() {
 
     // Get webhook URL
     console.log('\nYour webhook URL should be your Vercel deployment URL + /api/telegram');
-    console.log('Example: https://your-vercel-app.vercel.app/api/telegram\n');
+    console.log('Example: https://cosmovision-tg-bot.vercel.app/api/telegram\n');
 
     const webhookUrl = await promptForInput('Enter your webhook URL: ');
     if (!webhookUrl || !webhookUrl.startsWith('https://')) {
