@@ -5,12 +5,16 @@
   "main": "api/telegram.js",
   "scripts": {
     "dev": "vercel dev",
-    "deploy": "vercel deploy --prod"
+    "deploy": "vercel deploy --prod",
+    "webhook": "node scripts/setup-webhook.js",
+    "generate-key": "node scripts/generate-auth-key.js"
   },
   "dependencies": {
     "telegraf": "^4.15.3",
     "better-sqlite3": "^9.2.2",
-    "node-fetch": "^2.7.0"
+    "node-fetch": "^2.7.0",
+    "near-api-js": "^2.1.4",
+    "dotenv": "^16.3.1"
   },
   "devDependencies": {
     "vercel": "^32.6.1"

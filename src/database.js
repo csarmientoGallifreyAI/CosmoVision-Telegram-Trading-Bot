@@ -1,6 +1,7 @@
 const sqlite3 = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const Logger = require('./services/logger');
 
 // Database configuration
 // Check if running on Vercel (production environment)
@@ -14,12 +15,12 @@ class Database {
   static db = null;
 
   static initialize_database() {
-    console.log('Initializing database...');
-    console.log(`Database path: ${DB_PATH}`);
+    Logger.info('Initializing database...');
+    Logger.debug(`Database path: ${DB_PATH}`);
 
     // Create data directory if it doesn't exist
     if (!fs.existsSync(DB_DIRECTORY)) {
-      console.log(`Creating database directory: ${DB_DIRECTORY}`);
+      Logger.info(`Creating database directory: ${DB_DIRECTORY}`);
       fs.mkdirSync(DB_DIRECTORY, { recursive: true });
     }
 
@@ -29,7 +30,11 @@ class Database {
       // Enable foreign keys
       this.db.pragma('foreign_keys = ON');
 
-      // Create tables if they don't exist
+      // Get existing table schema
+      const tableInfo = this.db.prepare('PRAGMA table_info(coins)').all();
+      const columns = tableInfo.map((col) => col.name);
+
+      // Create the main coins table if it doesn't exist
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS coins (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,9 +49,23 @@ class Database {
         );
       `);
 
-      console.log('Database initialized successfully');
+      // Add new columns if they don't exist
+      if (!columns.includes('market_cap')) {
+        Logger.info('Adding market_cap column to coins table');
+        this.db.exec('ALTER TABLE coins ADD COLUMN market_cap REAL DEFAULT NULL;');
+      }
+
+      if (!columns.includes('chain')) {
+        Logger.info('Adding chain column to coins table');
+        this.db.exec('ALTER TABLE coins ADD COLUMN chain TEXT DEFAULT "BSC";');
+
+        // Add index for chain column
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_coins_chain ON coins(chain);');
+      }
+
+      Logger.info('Database initialized successfully');
     } catch (error) {
-      console.error('Error initializing database:', error);
+      Logger.error('Error initializing database:', { error: error.message, stack: error.stack });
       throw error;
     }
   }
@@ -55,6 +74,7 @@ class Database {
     if (this.db) {
       this.db.close();
       this.db = null;
+      Logger.debug('Database connection closed');
     }
   }
 
@@ -64,32 +84,95 @@ class Database {
         this.initialize_database();
       }
 
-      const stmt = this.db.prepare(`
-        INSERT INTO coins (
-          name, symbol, contract, price, holders, transfers_24h, last_updated
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(contract) DO UPDATE SET
-          name = excluded.name,
-          symbol = excluded.symbol,
-          price = excluded.price,
-          holders = excluded.holders,
-          transfers_24h = excluded.transfers_24h,
-          last_updated = excluded.last_updated
-      `);
+      // Extract fields from coin_data
+      const { name, symbol, contract, price, holders, transfers_24h, market_cap, chain } =
+        coin_data;
 
-      const result = stmt.run(
-        coin_data.name,
-        coin_data.symbol,
-        coin_data.contract,
-        coin_data.price,
-        coin_data.holders,
-        coin_data.transfers_24h,
-        Math.floor(Date.now() / 1000) // Current timestamp in seconds
-      );
+      // Prepare the SQL query
+      let sql;
+      let params;
 
+      // Check if the chain field is provided
+      if (chain !== undefined) {
+        sql = `
+          INSERT INTO coins (
+            name, symbol, contract, price, holders, transfers_24h, market_cap, chain, last_updated
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(contract) DO UPDATE SET
+            name = excluded.name,
+            symbol = excluded.symbol,
+            price = excluded.price,
+            holders = excluded.holders,
+            transfers_24h = excluded.transfers_24h,
+            market_cap = excluded.market_cap,
+            chain = excluded.chain,
+            last_updated = excluded.last_updated
+        `;
+        params = [
+          name,
+          symbol,
+          contract,
+          price,
+          holders,
+          transfers_24h,
+          market_cap,
+          chain,
+          Math.floor(Date.now() / 1000), // Current timestamp in seconds
+        ];
+      } else {
+        // Legacy support for old code without chain parameter
+        sql = `
+          INSERT INTO coins (
+            name, symbol, contract, price, holders, transfers_24h, market_cap, last_updated
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(contract) DO UPDATE SET
+            name = excluded.name,
+            symbol = excluded.symbol,
+            price = excluded.price,
+            holders = excluded.holders,
+            transfers_24h = excluded.transfers_24h,
+            market_cap = excluded.market_cap,
+            last_updated = excluded.last_updated
+        `;
+        params = [
+          name,
+          symbol,
+          contract,
+          price,
+          holders,
+          transfers_24h,
+          market_cap,
+          Math.floor(Date.now() / 1000), // Current timestamp in seconds
+        ];
+      }
+
+      const stmt = this.db.prepare(sql);
+      const result = stmt.run(...params);
+
+      Logger.debug(`Upserted coin: ${name} (${symbol})`);
       return result.changes > 0;
     } catch (error) {
-      console.error('Error upserting coin:', error);
+      Logger.error('Error upserting coin:', { coin: coin_data.name, error: error.message });
+      throw error;
+    }
+  }
+
+  static async updateCoinMarketCap(contract, marketCap) {
+    try {
+      if (!this.db) {
+        this.initialize_database();
+      }
+
+      const stmt = this.db.prepare(`
+        UPDATE coins SET market_cap = ? WHERE contract = ?
+      `);
+
+      const result = stmt.run(marketCap, contract);
+
+      Logger.debug(`Updated market cap for contract: ${contract}`);
+      return result.changes > 0;
+    } catch (error) {
+      Logger.error('Error updating market cap:', { contract, error: error.message });
       throw error;
     }
   }
@@ -102,6 +185,8 @@ class Database {
 
       query = query.trim().toLowerCase();
 
+      Logger.debug(`Searching for coin with query: ${query}`);
+
       const stmt = this.db.prepare(`
         SELECT * FROM coins
         WHERE LOWER(name) LIKE ?
@@ -112,9 +197,15 @@ class Database {
 
       const coin = stmt.get(`%${query}%`, `%${query}%`, `%${query}%`);
 
+      if (coin) {
+        Logger.debug(`Found coin: ${coin.name} (${coin.symbol})`);
+      } else {
+        Logger.debug(`No coin found for query: ${query}`);
+      }
+
       return coin || null;
     } catch (error) {
-      console.error('Error searching for coin:', error);
+      Logger.error('Error searching for coin:', { query, error: error.message });
       throw error;
     }
   }
@@ -125,10 +216,125 @@ class Database {
         this.initialize_database();
       }
 
+      Logger.debug('Fetching all coins from database');
       const stmt = this.db.prepare('SELECT * FROM coins');
-      return stmt.all();
+      const coins = stmt.all();
+
+      Logger.debug(`Retrieved ${coins.length} coins from database`);
+      return coins;
     } catch (error) {
-      console.error('Error getting all coins:', error);
+      Logger.error('Error getting all coins:', { error: error.message });
+      throw error;
+    }
+  }
+
+  static async get_historical_data(contract, period = 'daily', limit = 7) {
+    try {
+      if (!this.db) {
+        this.initialize_database();
+      }
+
+      // Check if the history table exists, create if not
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS coin_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contract TEXT NOT NULL,
+          timestamp INTEGER NOT NULL,
+          price REAL,
+          holders INTEGER,
+          transfers_24h INTEGER,
+          market_cap REAL,
+          UNIQUE(contract, timestamp),
+          FOREIGN KEY (contract) REFERENCES coins(contract)
+        );
+        CREATE INDEX IF NOT EXISTS idx_history_contract_time ON coin_history(contract, timestamp);
+      `);
+
+      Logger.debug(`Fetching ${period} historical data for ${contract}, limit ${limit}`);
+
+      const stmt = this.db.prepare(`
+        SELECT * FROM coin_history
+        WHERE contract = ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+      `);
+
+      const history = stmt.all(contract, limit);
+
+      Logger.debug(`Retrieved ${history.length} historical data points for ${contract}`);
+      return history;
+    } catch (error) {
+      Logger.error('Error getting historical data:', { contract, error: error.message });
+      return [];
+    }
+  }
+
+  static async save_historical_snapshot() {
+    try {
+      if (!this.db) {
+        this.initialize_database();
+      }
+
+      // Create history table if not exists
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS coin_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contract TEXT NOT NULL,
+          timestamp INTEGER NOT NULL,
+          price REAL,
+          holders INTEGER,
+          transfers_24h INTEGER,
+          market_cap REAL,
+          UNIQUE(contract, timestamp),
+          FOREIGN KEY (contract) REFERENCES coins(contract)
+        );
+        CREATE INDEX IF NOT EXISTS idx_history_contract_time ON coin_history(contract, timestamp);
+      `);
+
+      // Get all current coins
+      const coins = this.db.prepare('SELECT * FROM coins').all();
+
+      if (!coins || coins.length === 0) {
+        Logger.info('No coins to snapshot for historical data');
+        return 0;
+      }
+
+      Logger.info(`Creating historical snapshot for ${coins.length} coins`);
+
+      // Current timestamp
+      const now = Math.floor(Date.now() / 1000);
+
+      // Insert each coin's current state into history
+      const stmt = this.db.prepare(`
+        INSERT OR REPLACE INTO coin_history (
+          contract, timestamp, price, holders, transfers_24h, market_cap
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `);
+
+      let count = 0;
+      for (const coin of coins) {
+        try {
+          stmt.run(
+            coin.contract,
+            now,
+            coin.price,
+            coin.holders,
+            coin.transfers_24h,
+            coin.market_cap
+          );
+          count++;
+        } catch (insertError) {
+          Logger.error('Error inserting coin history:', {
+            contract: coin.contract,
+            error: insertError.message,
+          });
+        }
+      }
+
+      Logger.info(`Successfully saved historical snapshot for ${count} coins`);
+      return count;
+    } catch (error) {
+      Logger.error('Error saving historical snapshot:', { error: error.message });
       throw error;
     }
   }

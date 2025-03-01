@@ -1,12 +1,20 @@
 const fetch = require('node-fetch');
 const Database = require('./database');
+const Logger = require('./services/logger');
+const BscChain = require('./blockchain/chains/bsc');
+const NearChain = require('./blockchain/chains/near');
+const MarketCapService = require('./services/marketCap');
 
 class Blockchain {
   // Configuration
   static etherscan_api_key = process.env.ETHERSCAN_API_KEY || '';
 
+  /**
+   * Update blockchain data for all coins in the database
+   * @returns {Promise<Array>} Array of updated coins
+   */
   static async update_blockchain_data() {
-    console.log('Starting blockchain data update...');
+    Logger.info('Starting blockchain data update...');
     const updated_coins = [];
 
     try {
@@ -14,26 +22,36 @@ class Blockchain {
       const coins = await Database.get_all_coins();
 
       if (!coins || coins.length === 0) {
-        console.log('No coins found in database to update');
+        Logger.warn('No coins found in database to update');
         return updated_coins;
       }
 
-      console.log(`Found ${coins.length} coins in database to update`);
+      Logger.info(`Found ${coins.length} coins in database to update`);
 
       // Process each coin - fetch blockchain data
       for (const coin of coins) {
         try {
           // Skip coins without contract addresses
           if (!coin.contract) {
-            console.warn(`Skipping coin ${coin.name} (${coin.symbol}) - no contract address`);
+            Logger.warn(`Skipping coin ${coin.name} (${coin.symbol}) - no contract address`);
             continue;
           }
 
-          // Fetch holder count from Etherscan (example)
-          const holders = await this.get_token_holder_count(coin.contract);
+          let holders = null;
+          let transfers_24h = null;
 
-          // Fetch transfer count for last 24 hours
-          const transfers_24h = await this.get_token_transfers_24h(coin.contract);
+          // Use the appropriate chain adapter based on coin.chain
+          if (!coin.chain || coin.chain === 'BSC') {
+            holders = await BscChain.getTokenHolders(coin.contract);
+            transfers_24h = await BscChain.getTransferCount(coin.contract);
+          } else if (coin.chain === 'NEAR') {
+            holders = await NearChain.getTokenHolders(coin.contract);
+            transfers_24h = await NearChain.getTransferCount(coin.contract);
+          } else {
+            Logger.warn(
+              `Unknown chain ${coin.chain} for ${coin.name}, unable to fetch blockchain data`
+            );
+          }
 
           // Update the database with new data
           const updated_data = {
@@ -45,17 +63,43 @@ class Blockchain {
           await Database.upsert_coin(updated_data);
           updated_coins.push(updated_data);
 
-          console.log(`Updated blockchain data for ${coin.name} (${coin.symbol})`);
+          Logger.info(
+            `Updated blockchain data for ${coin.name} (${coin.symbol}) on ${coin.chain || 'BSC'}`
+          );
         } catch (error) {
-          console.error(`Error updating blockchain data for coin ${coin.name}:`, error);
+          Logger.error(`Error updating blockchain data for coin ${coin.name}:`, {
+            contract: coin.contract,
+            chain: coin.chain,
+            error: error.message,
+          });
         }
       }
 
-      console.log(`Successfully updated blockchain data for ${updated_coins.length} coins`);
+      // After updating blockchain data, update market caps
+      Logger.info('Updating market caps for all coins...');
+      const marketCapUpdates = await MarketCapService.updateMarketCaps();
+
+      Logger.info(`Successfully updated blockchain data for ${updated_coins.length} coins`);
+      Logger.info(`Updated market caps for ${marketCapUpdates.length} coins`);
+
       return updated_coins;
     } catch (error) {
-      console.error('Error in blockchain data update:', error);
+      Logger.error('Error in blockchain data update:', { error: error.message });
       return updated_coins;
+    }
+  }
+
+  /**
+   * Check for NEAR asset validity
+   * @param {string} address - NEAR address to check
+   * @returns {Promise<boolean>} True if valid NEAR contract
+   */
+  static async validateNearAsset(address) {
+    try {
+      return await NearChain.isValidContract(address);
+    } catch (error) {
+      Logger.error('Error validating NEAR asset', { address, error: error.message });
+      return false;
     }
   }
 

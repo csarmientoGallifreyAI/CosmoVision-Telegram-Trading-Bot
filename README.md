@@ -5,9 +5,13 @@ A Telegram bot that provides analysis and metrics for meme coins. The bot scrape
 ## Features
 
 - Search for meme coins by name or symbol
-- Get price, holder count, and 24-hour transfer metrics
+- Get price, holder count, 24-hour transfer metrics, and market cap
 - Analyze activity ratios to identify active vs. dormant tokens
+- Set alerts for price, holders, transfers, and market cap changes
+- Multi-chain support: BSC and NEAR Protocol
 - Automatic data updates every 6 hours
+- Enhanced error handling and logging
+- Performance optimization with caching
 
 ## Technology
 
@@ -15,6 +19,8 @@ A Telegram bot that provides analysis and metrics for meme coins. The bot scrape
 - Telegraf (Telegram Bot Framework)
 - SQLite (for local data storage)
 - Vercel serverless functions for deployment
+- NEAR API JS for NEAR blockchain integration
+- BSCScan API for Binance Smart Chain data
 
 ## Setup Instructions
 
@@ -22,7 +28,7 @@ A Telegram bot that provides analysis and metrics for meme coins. The bot scrape
 
 - Node.js 14+
 - A Telegram Bot Token (get from [@BotFather](https://t.me/BotFather))
-- Etherscan API Key (optional, for blockchain data)
+- Etherscan API Key (for BSC blockchain data)
 - Vercel account for deployment
 
 ### Local Development
@@ -46,6 +52,7 @@ npm install
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 ETHERSCAN_API_KEY=your_etherscan_api_key
 UPDATE_AUTH_KEY=a_secret_key_for_data_updates
+ADMIN_CHAT_ID=your_telegram_chat_id_for_critical_alerts
 ```
 
 4. Run locally with Vercel dev:
@@ -97,6 +104,15 @@ node scripts/setup-webhook.js
 3. Verify the webhook is working by visiting:
    `https://your-vercel-app.vercel.app/api/test`
 
+## Bot Commands
+
+- `/start` - Begin interacting with the bot
+- `/help` - Show available commands
+- `/analyze <coin>` - Get detailed analysis for a coin
+- `/setalert <coin> <metric> <condition> <threshold>` - Set an alert
+- `/myalerts` - View your active alerts
+- `/removealert <number>` - Remove an alert
+
 ## Architecture
 
 The bot is designed to work with Vercel's serverless functions:
@@ -105,7 +121,33 @@ The bot is designed to work with Vercel's serverless functions:
 - `/api/update-data.js` - Scheduled job to update coin data
 - `/api/test.js` - Test endpoint to verify deployment
 
-Data is stored in an SQLite database, which is compatible with Vercel's read-only filesystem for the deployment.
+Data is stored in an SQLite database in the `/tmp` directory when deployed on Vercel.
+
+### Components
+
+- **Logger Service**: Structured logging with severity levels
+- **Cache Service**: In-memory caching to reduce external API calls
+- **Blockchain Adapters**: Chain-specific code for BSC and NEAR
+- **Alert System**: User-configurable alerts for various metrics
+- **Market Cap Service**: Calculation and tracking of market capitalization
+
+## API Endpoints
+
+- `/api/telegram` - Webhook for Telegram updates
+- `/api/update-data` - Updates coin data (protected by auth key)
+- `/api/test` - Status check endpoint
+- `/` - Landing page with bot information
+
+## Security
+
+The update endpoint is protected with an authentication key. Set the `UPDATE_AUTH_KEY` environment variable and include it in requests as the `x-auth-key` header.
+
+## Data Limitations
+
+When deployed on Vercel, the SQLite database is stored in the `/tmp` directory, which is ephemeral. This means data may be reset periodically. For production use, consider:
+
+1. Implementing a backup system to periodically export data
+2. Migrating to a cloud database solution
 
 ## Troubleshooting
 
