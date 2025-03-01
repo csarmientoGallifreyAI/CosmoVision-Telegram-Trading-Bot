@@ -11,12 +11,17 @@ module.exports = (req, res) => {
           a { color: #0070f3; text-decoration: none; }
           a:hover { text-decoration: underline; }
           .api-link { background: #f0f0f0; padding: 10px; border-radius: 5px; margin: 20px 0; display: inline-block; }
+          .status { background: #e6f7ff; border-left: 4px solid #1890ff; padding: 15px; margin: 20px 0; }
         </style>
       </head>
       <body>
         <div class="container">
           <h1>Cosmovision Telegram Bot</h1>
           <p>This is the server for the Cosmovision Telegram Bot. The bot is running and ready to receive commands.</p>
+
+          <div class="status">
+            <strong>Status:</strong> Active
+          </div>
 
           <p>Test the API status: <a class="api-link" href="/api/test">/api/test</a></p>
 
@@ -26,6 +31,13 @@ module.exports = (req, res) => {
             <li>Start a conversation with /start</li>
             <li>Use /analyze [coin name] to get information about a coin</li>
           </ol>
+
+          <h2>API Endpoints:</h2>
+          <ul>
+            <li><strong>/api/telegram</strong> - Webhook for Telegram updates</li>
+            <li><strong>/api/update-data</strong> - Endpoint for updating coin data</li>
+            <li><strong>/api/test</strong> - Test endpoint to verify API status</li>
+          </ul>
         </div>
       </body>
     </html>

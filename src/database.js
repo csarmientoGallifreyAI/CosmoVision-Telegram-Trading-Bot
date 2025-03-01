@@ -3,7 +3,10 @@ const path = require('path');
 const fs = require('fs');
 
 // Database configuration
-const DB_DIRECTORY = path.join(process.cwd(), 'src', 'data');
+// Check if running on Vercel (production environment)
+const isVercel = process.env.VERCEL === '1';
+// Use /tmp directory on Vercel, otherwise use the regular path
+const DB_DIRECTORY = isVercel ? '/tmp' : path.join(process.cwd(), 'src', 'data');
 const DB_PATH = path.join(DB_DIRECTORY, 'coins.db');
 
 // Database class to handle all SQLite operations
@@ -12,6 +15,7 @@ class Database {
 
   static initialize_database() {
     console.log('Initializing database...');
+    console.log(`Database path: ${DB_PATH}`);
 
     // Create data directory if it doesn't exist
     if (!fs.existsSync(DB_DIRECTORY)) {
