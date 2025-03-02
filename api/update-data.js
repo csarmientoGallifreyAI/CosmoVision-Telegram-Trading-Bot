@@ -42,6 +42,7 @@ module.exports = async (req, res) => {
     let updated_count = 0;
     let market_cap_count = 0;
     let triggered_alerts = 0;
+    let trading_signals = 0;
 
     // Run the scraper to get the latest coin data
     Logger.info('Running coin scraper...');
@@ -127,6 +128,38 @@ module.exports = async (req, res) => {
       // Continue with the rest of the update process
     }
 
+    // Generate trading signals if trading features are enabled
+    if (process.env.ENABLE_TRADING_FEATURES === 'true') {
+      try {
+        Logger.info('Generating trading signals...');
+        const TradingService = require('../src/services/trading');
+        const TradeModel = require('../src/models/tradeModel');
+
+        // Initialize trade tables if they don't exist
+        await TradeModel.createTables();
+
+        // Generate signals
+        const signals = await TradingService.generateDailySignals();
+        trading_signals = signals.length;
+
+        // Expire old signals
+        const expiredCount = await TradeModel.expireOldSignals();
+
+        // Update outcomes for expired signals
+        const updatedOutcomes = await TradeModel.checkAndUpdateSignalOutcomes();
+
+        Logger.info(
+          `Trading signal generation complete: ${signals.length} new signals, ${expiredCount} expired, ${updatedOutcomes} outcomes updated`
+        );
+      } catch (tradingError) {
+        Logger.error('Error in trading signal generation:', {
+          error: tradingError.message,
+          stack: tradingError.stack,
+        });
+        // Continue with the rest of the update process
+      }
+    }
+
     // Check for triggered alerts
     Logger.info('Checking for triggered alerts...');
     const alerts = await AlertModel.checkAlerts();
@@ -145,7 +178,7 @@ module.exports = async (req, res) => {
 
     // Send response
     Logger.info(
-      `Data update completed in ${runtime}s. Scraped: ${scraped_count}, Updated blockchain: ${updated_count}, Market caps: ${market_cap_count}, Alerts: ${triggered_alerts}`
+      `Data update completed in ${runtime}s. Scraped: ${scraped_count}, Updated blockchain: ${updated_count}, Market caps: ${market_cap_count}, Alerts: ${triggered_alerts}, Trading signals: ${trading_signals}`
     );
 
     return res.status(200).json({
@@ -157,6 +190,7 @@ module.exports = async (req, res) => {
         blockchain_updated: updated_count,
         market_caps_updated: market_cap_count,
         alerts_triggered: triggered_alerts,
+        trading_signals_generated: trading_signals,
       },
     });
   } catch (error) {

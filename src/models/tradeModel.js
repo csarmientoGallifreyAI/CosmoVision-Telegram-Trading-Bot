@@ -405,6 +405,149 @@ class TradeModel {
       return 0;
     }
   }
+
+  /**
+   * Update signal outcome with actual results
+   * @param {number} signalId - Signal ID to update
+   * @param {number} actualOutcome - Actual percentage change in price
+   * @returns {Promise<boolean>} - Success status
+   */
+  static async updateSignalOutcome(signalId, actualOutcome) {
+    try {
+      if (!Database.db) {
+        Database.initialize_database();
+      }
+
+      // First check if the signal exists and isn't already completed
+      const checkStmt = Database.db.prepare(`
+        SELECT * FROM trade_signals
+        WHERE id = ? AND status IN ('active', 'expired')
+      `);
+
+      const signal = checkStmt.get(signalId);
+
+      if (!signal) {
+        Logger.warn(`Signal ${signalId} not found or already completed`);
+        return false;
+      }
+
+      // Update with the actual outcome
+      const updateStmt = Database.db.prepare(`
+        UPDATE trade_signals
+        SET actual_outcome = ?,
+            status = 'completed'
+        WHERE id = ?
+      `);
+
+      const result = updateStmt.run(actualOutcome, signalId);
+
+      if (result.changes > 0) {
+        Logger.info(`Updated signal ${signalId} with actual outcome: ${actualOutcome.toFixed(2)}%`);
+
+        // Update performance metrics
+        const successful =
+          (signal.direction === 'buy' && actualOutcome > 0) ||
+          (signal.direction === 'sell' && actualOutcome < 0);
+
+        await this.updatePerformanceMetrics(
+          signal.contract,
+          'day',
+          signal.direction,
+          successful,
+          actualOutcome
+        );
+      }
+
+      return result.changes > 0;
+    } catch (error) {
+      Logger.error('Error updating signal outcome:', { error: error.message, signalId });
+      return false;
+    }
+  }
+
+  /**
+   * Check and update outcomes for completed signals
+   * @returns {Promise<number>} - Number of signals updated
+   */
+  static async checkAndUpdateSignalOutcomes() {
+    try {
+      if (!Database.db) {
+        Database.initialize_database();
+      }
+
+      // Get expired signals that haven't been evaluated yet
+      const stmt = Database.db.prepare(`
+        SELECT s.*, c.price as current_price, c.name, c.symbol
+        FROM trade_signals s
+        JOIN coins c ON s.contract = c.contract
+        WHERE s.status = 'expired' AND s.actual_outcome IS NULL
+      `);
+
+      const expiredSignals = stmt.all();
+
+      if (expiredSignals.length === 0) {
+        return 0;
+      }
+
+      Logger.info(`Checking outcomes for ${expiredSignals.length} expired signals`);
+
+      let updatedCount = 0;
+
+      for (const signal of expiredSignals) {
+        try {
+          // Calculate the actual outcome
+          let actualOutcome = 0;
+
+          // First try to get historical price data
+          const historyData = await Database.getHistoricalMetrics(signal.contract, 'price', 7);
+
+          // Find price at signal creation time
+          const signalTime = signal.created_at;
+          let priceAtSignal = 0;
+
+          for (const entry of historyData) {
+            // Find the closest price entry to signal creation time
+            if (Math.abs(entry.timestamp - signalTime) < 86400) {
+              // Within 24 hours
+              priceAtSignal = entry.value;
+              break;
+            }
+          }
+
+          // If we couldn't find historical price, use the current price for a rough estimate
+          if (priceAtSignal === 0) {
+            priceAtSignal = signal.price_at_signal || signal.current_price;
+          }
+
+          // Calculate percentage change
+          if (priceAtSignal > 0 && signal.current_price > 0) {
+            actualOutcome = ((signal.current_price - priceAtSignal) / priceAtSignal) * 100;
+          }
+
+          // Update the signal outcome
+          const updated = await this.updateSignalOutcome(signal.id, actualOutcome);
+
+          if (updated) {
+            updatedCount++;
+            Logger.debug(
+              `Signal ${signal.id} for ${signal.name}: outcome ${actualOutcome.toFixed(2)}%`
+            );
+          }
+        } catch (signalError) {
+          Logger.error(`Error processing outcome for signal ${signal.id}:`, {
+            error: signalError.message,
+            signal: signal.id,
+          });
+          // Continue with other signals
+        }
+      }
+
+      return updatedCount;
+    } catch (error) {
+      Logger.error('Error checking signal outcomes:', { error: error.message });
+      return 0;
+    }
+  }
 }
 
 module.exports = TradeModel;

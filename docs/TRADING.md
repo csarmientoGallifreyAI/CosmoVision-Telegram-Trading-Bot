@@ -1,80 +1,128 @@
-# Trading Features
+# CosmoVision Trading Features
 
-The CosmoVision bot now includes trading analysis and signal generation for meme coins and other crypto tokens. This document explains how to use these features and how they work behind the scenes.
+This documentation provides an overview of the CosmoVision Telegram Bot's trading features and dashboard integration.
 
-## Available Commands
+## Overview
 
-| Command               | Description                                                    |
-| --------------------- | -------------------------------------------------------------- |
-| `/trade`              | Open the trading dashboard with access to all trading features |
-| `/signals`            | View current trading signals for meme coins                    |
-| `/mytrades`           | Track your trade history and performance                       |
-| `/predict <symbol>`   | Get price prediction for a specific coin                       |
-| `/sentiment <symbol>` | Get sentiment analysis for a specific coin                     |
-| `/coins`              | View available coins for trading                               |
+The CosmoVision bot now includes comprehensive trading features that allow users to:
 
-## How It Works
+1. Receive trading signals for meme coins based on market cap, sentiment analysis, and price prediction
+2. Track their trades and performance
+3. Access an intuitive dashboard for deeper analytics and management
+
+## Trading Features
 
 ### Trading Signals
 
-The bot analyzes coins using the following factors:
+The bot provides trading signals based on several factors:
 
-1. **Market Cap** - Filters out extremely small-cap coins to reduce risk
-2. **Sentiment Analysis** - Uses AI to gauge social sentiment from forums and social media
-3. **Price Trends** - Analyzes recent price movements to identify trends
-4. **Holder Growth** - Considers the rate of new holders as a bullish indicator
-5. **Transaction Volume** - Evaluates trading activity as a liquidity indicator
+- Market cap filtering (configurable threshold)
+- Social media sentiment analysis
+- Historical price data and trend analysis
+- Technical indicators
 
-Based on these factors, the bot generates buy or sell signals with confidence scores. Only signals with high confidence are shown.
+Signals include:
 
-### Trade Tracking
+- Direction (buy/sell)
+- Confidence score
+- Target price
+- Stop loss recommendation
+- Potential profit calculation
 
-You can save signals to your trade portfolio, allowing you to:
+### Commands
 
-- Track open trade performance
-- Record closed trades with profit/loss
-- Analyze your trading history
-- Receive notifications on important price movements
+- `/trade` - Access the main trading interface
+- `/signals` - Get the latest trading signals
+- `/mytrades` - View your saved trades and performance
+- `/predict` - Get price predictions for specific coins
+- `/sentiment` - Analyze social sentiment for coins
+- `/coins` - List available coins and their market stats
+- `/dashboard` - Generate access code for the web dashboard
 
-### Sentiment Analysis
+## Dashboard
 
-The sentiment analyzer evaluates social perception of a coin by:
+The CosmoVision Trading Dashboard provides a comprehensive web interface for trading features.
 
-1. Using AI to analyze recent mentions
-2. Categorizing sentiment as positive, neutral, or negative
-3. Providing a visualization of sentiment strength
-4. Offering trading insights based on the sentiment
+### Features
 
-### Price Predictions
+- **Authentication**: Secure login using one-time codes through the Telegram bot
+- **Analytics**: Detailed performance metrics, winrate analysis, and profit/loss tracking
+- **Signals**: View and filter all available trading signals
+- **Trades**: Complete history of your trades with sorting and filtering
+- **Performance**: Visual charts and analytics of your trading performance
+- **Settings**: Customize dashboard preferences and notification settings
 
-The price prediction feature combines:
+### Deployment Instructions
 
-1. Historical price data
-2. Holder growth rates
-3. Transfer activity (volume)
-4. Market sentiment
+#### Prerequisites
 
-To provide short-term (24-48 hour) price direction forecasts with confidence scores.
+1. A Vercel account for hosting the dashboard
+2. Node.js 16+ installed for local development
+3. Proper environment configuration
 
-## Important Notes
+#### Dashboard Deployment Steps
 
-- All signals and predictions are for **informational purposes only**
-- Always do your own research before trading
-- The bot doesn't have access to your wallet or exchange accounts
-- Trading cryptocurrency, especially meme coins, involves substantial risk
-- Performance metrics are based on historical data and don't guarantee future results
+1. **Prepare Environment Variables**:
+   Make sure the following variables are configured in both your bot's `.env` file and the dashboard's environment:
 
-## Technical Implementation
+   ```
+   # CosmoVision Bot Variables
+   API_SECRET_KEY=your_secure_api_key
+   DASHBOARD_URL=https://your-dashboard-url.vercel.app
+   JWT_SECRET=your_jwt_signing_secret
 
-The trading feature consists of several components:
+   # Dashboard Variables (in Vercel)
+   NEXT_PUBLIC_API_URL=https://your-bot-api-url.vercel.app
+   ```
 
-- **TradingService**: Core service generating signals and predictions
-- **TradeModel**: Database model for storing signals and trades
-- **MarketCapService**: Gets coins with relevant market cap for analysis
-- **AIProviderManager**: Provides sentiment analysis capabilities
+2. **Deploy the Dashboard to Vercel**:
 
-Trading data is stored in three database tables:
+   ```bash
+   cd dashboard
+   npm run build
+   vercel --prod
+   ```
 
-- `trade_signals`: Stores active trading signals
-- `user_trades`: Tracks user's active and past trades
-- `trade_performance`: Records performance metrics by coin
+3. **Set Up CORS**:
+   Ensure the `tradingDashboard.js` API endpoint has proper CORS headers configured for your dashboard domain.
+
+4. **Test Authentication Flow**:
+   - Use the `/dashboard` command in the bot
+   - Copy the one-time code
+   - Visit the dashboard and enter the code
+   - Verify successful login and data fetching
+
+## Security Considerations
+
+The dashboard implements several security measures:
+
+1. **One-time codes**: Short-lived (5 minutes) and single-use
+2. **JWT Authentication**: Securely signed tokens with a 7-day expiration
+3. **API Secret Key**: Protected API endpoints
+4. **CORS Protection**: API access limited to the dashboard domain
+
+## Data Integration
+
+The dashboard integrates with the bot's existing data model:
+
+1. **Trading Signals**: Generated by the bot and stored in the database
+2. **User Trades**: Managed through both the bot and dashboard
+3. **Performance Metrics**: Calculated based on trade history
+4. **User Settings**: Synced between bot and dashboard
+
+## Technical Architecture
+
+The trading system consists of:
+
+1. **TradingService**: Core logic for signal generation and trade management
+2. **TradeModel**: Database interface for storing and retrieving trade data
+3. **Dashboard**: Next.js front-end with Tailwind CSS styling
+4. **API Endpoint**: Integration between the dashboard and bot
+
+## Disclaimer
+
+All trading signals and recommendations are provided for informational purposes only. Users should exercise caution and conduct their own research before making investment decisions.
+
+## Branding
+
+The dashboard features the CosmoVision cyberpunk-inspired design language with the Milei-themed branding elements and the "Lagrimas de zurdo" signature phrase in the footer.

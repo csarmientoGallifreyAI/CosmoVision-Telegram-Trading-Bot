@@ -141,6 +141,66 @@ class MarketCapService {
       return [];
     }
   }
+
+  /**
+   * Get coins above a minimum market cap threshold
+   * @param {number} minMarketCap - Minimum market cap in USD
+   * @param {number} limit - Maximum number of coins to return
+   * @param {Object} options - Additional filter options
+   * @returns {Promise<Array>} - Array of filtered coins
+   */
+  static async getCoinsAboveMarketCap(minMarketCap = 60000, limit = 50, options = {}) {
+    try {
+      Logger.info(`Getting coins with market cap above $${minMarketCap}`);
+
+      if (!Database.db) {
+        Database.initialize_database();
+      }
+
+      // Build query with filters
+      let query = `
+        SELECT * FROM coins
+        WHERE market_cap IS NOT NULL AND market_cap >= ? AND price > 0
+      `;
+
+      const queryParams = [minMarketCap];
+
+      // Add chain filter if specified
+      if (options.chain) {
+        query += ` AND chain = ?`;
+        queryParams.push(options.chain);
+      }
+
+      // Add holder filter if specified
+      if (options.minHolders) {
+        query += ` AND holders >= ?`;
+        queryParams.push(options.minHolders);
+      }
+
+      // Add activity filter based on transfers_24h
+      if (options.minTransfers) {
+        query += ` AND transfers_24h >= ?`;
+        queryParams.push(options.minTransfers);
+      }
+
+      // Order by market cap and limit results
+      query += ` ORDER BY market_cap DESC LIMIT ?`;
+      queryParams.push(limit);
+
+      // Execute query
+      const stmt = Database.db.prepare(query);
+      const coins = stmt.all(...queryParams);
+
+      Logger.info(`Found ${coins.length} coins with market cap above $${minMarketCap}`);
+      return coins;
+    } catch (error) {
+      Logger.error('Error fetching coins by market cap:', {
+        error: error.message,
+        threshold: minMarketCap,
+      });
+      return [];
+    }
+  }
 }
 
 module.exports = MarketCapService;

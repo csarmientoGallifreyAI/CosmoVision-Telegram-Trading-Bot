@@ -860,6 +860,10 @@ function registerBotHandlers(bot) {
   // Import the trading command handlers
   const TradeCommands = require('../src/commands/trade');
 
+  // Import the help and dashboard commands
+  const HelpCommand = require('../src/commands/help');
+  const DashboardCommand = require('../src/commands/dashboard');
+
   // Register trading commands
   bot.command('trade', TradeCommands.handleTradeCommand);
   bot.command('signals', TradeCommands.handleSignalsCommand);
@@ -867,6 +871,10 @@ function registerBotHandlers(bot) {
   bot.command('predict', TradeCommands.handlePredictCommand);
   bot.command('sentiment', TradeCommands.handleSentimentCommand);
   bot.command('coins', TradeCommands.handleCoinsCommand);
+
+  // Register help and dashboard commands
+  bot.command('help', HelpCommand.handler);
+  bot.command('dashboard', DashboardCommand.handler);
 
   // Register callback handler for trading features
   bot.action(/^trades:/, TradeCommands.handleTradeCallback);

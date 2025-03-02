@@ -30,6 +30,19 @@ class TradingService {
   static initialize() {
     try {
       Logger.info('Initializing Trading Service');
+
+      // Initialize from environment variables if available
+      if (process.env.MIN_MARKET_CAP) {
+        this.MIN_MARKET_CAP = parseInt(process.env.MIN_MARKET_CAP);
+      }
+
+      if (process.env.MIN_PROFIT_TARGET) {
+        this.MIN_PROFIT_TARGET = parseInt(process.env.MIN_PROFIT_TARGET);
+      }
+
+      Logger.info(
+        `Trading Service initialized with min market cap: $${this.MIN_MARKET_CAP}, min profit target: $${this.MIN_PROFIT_TARGET}`
+      );
       return true;
     } catch (error) {
       Logger.error('Failed to initialize Trading Service:', { error: error.message });
@@ -407,6 +420,71 @@ class TradingService {
       return [];
     } catch (error) {
       Logger.error('Error fetching active signals:', { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Generate daily trading signals
+   * Analyzes all eligible coins and generates signals based on market cap, sentiment, and price trends
+   * @returns {Promise<Array<Object>>} - Array of generated signals
+   */
+  static async generateDailySignals() {
+    try {
+      Logger.info('Starting daily trading signal generation');
+
+      // Get coins above minimum market cap
+      const minMarketCap = this.MIN_MARKET_CAP;
+      const coins = await MarketCapService.getCoinsAboveMarketCap(minMarketCap);
+
+      if (coins.length === 0) {
+        Logger.warn(`No coins found with market cap above $${minMarketCap}`);
+        return [];
+      }
+
+      Logger.info(`Found ${coins.length} coins above minimum market cap, analyzing for signals`);
+
+      // Generate signals for eligible coins
+      const signals = await this.generateTradingSignals(coins);
+
+      // Save signals to database
+      const savedSignals = [];
+      const TradeModel = require('../models/tradeModel');
+
+      for (const signal of signals) {
+        try {
+          const signalId = await TradeModel.saveSignal(signal);
+          if (signalId) {
+            savedSignals.push({ ...signal, id: signalId });
+          }
+        } catch (saveError) {
+          Logger.error(`Error saving signal for ${signal.coin.name}:`, {
+            error: saveError.message,
+            coin: signal.coin.name,
+          });
+        }
+      }
+
+      // Expire old signals
+      try {
+        const expiredCount = await TradeModel.expireOldSignals();
+        Logger.info(`Expired ${expiredCount} old signals`);
+      } catch (expireError) {
+        Logger.error('Error expiring old signals:', { error: expireError.message });
+      }
+
+      // Check outcomes of previously expired signals
+      try {
+        const updatedCount = await TradeModel.checkAndUpdateSignalOutcomes();
+        Logger.info(`Updated outcomes for ${updatedCount} expired signals`);
+      } catch (outcomeError) {
+        Logger.error('Error updating signal outcomes:', { error: outcomeError.message });
+      }
+
+      Logger.info(`Generated and saved ${savedSignals.length} trading signals`);
+      return savedSignals;
+    } catch (error) {
+      Logger.error('Error generating daily signals:', { error: error.message });
       return [];
     }
   }
