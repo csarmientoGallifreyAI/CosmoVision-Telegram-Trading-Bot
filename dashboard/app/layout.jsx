@@ -1,18 +1,15 @@
-import { Inter } from 'next/font/google';
+import './globals.css';
 import { AuthProvider } from '../components/auth-provider';
-import '../app/globals.css';
-
-const inter = Inter({ subsets: ['latin'] });
 
 export const metadata = {
   title: 'CosmoVision Trading Dashboard',
-  description: 'AI-powered trading analytics and signals for meme coins',
+  description: 'Advanced meme coin trading dashboard for the CosmoVision bot',
 };
 
 export default function RootLayout({ children }) {
   return (
-    <html lang='en'>
-      <body className={`${inter.className} bg-background text-foreground min-h-screen`}>
+    <html lang='en' className='dark'>
+      <body className='cyber-dashboard'>
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>

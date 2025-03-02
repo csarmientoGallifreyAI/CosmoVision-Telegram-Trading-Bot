@@ -12,6 +12,7 @@ const LocalModelsService = require('../services/localModels');
 const AIProviderManager = require('../services/aiProvider');
 const CacheService = require('../services/cache');
 const RateLimiter = require('../services/rateLimiter');
+const TradingService = require('../services/trading');
 const Logger = require('../services/logger');
 
 // Import AI components
@@ -63,6 +64,16 @@ async function initializeAIServices() {
     } catch (error) {
       Logger.error('Failed to initialize Hugging Face service:', { error: error.message });
       // Continue even if Hugging Face initialization fails
+    }
+
+    // Initialize Trading service
+    try {
+      Logger.info('Initializing Trading service...');
+      TradingService.initialize();
+      Logger.info('Trading service initialized successfully');
+    } catch (error) {
+      Logger.error('Failed to initialize Trading service:', { error: error.message });
+      // Continue even if Trading service initialization fails
     }
 
     // Initialize local models service if available

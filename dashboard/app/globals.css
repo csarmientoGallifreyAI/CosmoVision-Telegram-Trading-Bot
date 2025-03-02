@@ -2,170 +2,142 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #0f0f19;
-  --foreground: #e0e0f0;
-  --neon-blue: #4eaeff;
-  --neon-pink: #ff5eae;
-  --neon-purple: #a56eff;
-  --neon-green: #5eff8f;
-  --neon-yellow: #ffe55e;
-  --destructive: #ff4e4e;
+/* Import cyberpunk font */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+
+@layer base {
+  :root {
+    /* Cyberpunk theme - light values */
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --primary: 300 100% 50%; /* FF00FF Magenta */
+    --primary-foreground: 0 0% 98%;
+    --secondary: 225 73% 57%; /* 1E3A8A Dark blue */
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 300 97% 13%; /* 28133D Dark purple */
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 300 100% 50%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    /* Cyberpunk theme - dark values */
+    --background: 0 0% 0%; /* #000000 */
+    --foreground: 0 0% 98%;
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 300 100% 50%; /* FF00FF Magenta */
+    --primary-foreground: 0 0% 98%;
+    --secondary: 180 100% 50%; /* 00FFFF Cyan */
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 272 100% 50%; /* 9900FF Purple */
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 300 100% 50%;
+  }
 }
 
-/* Cyberpunk Theme Styles */
-body {
-  background-color: var(--background);
-  color: var(--foreground);
-  font-family: 'Inter', sans-serif;
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-cyber-black text-foreground font-cyber bg-cyber-grid;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-cyber tracking-wider;
+  }
 }
 
+/* Cyberpunk UI Components */
 @layer components {
-  /* Neon Text Effects */
-  .neon-text {
-    color: var(--neon-blue);
-    text-shadow: 0 0 5px rgba(78, 174, 255, 0.7), 0 0 10px rgba(78, 174, 255, 0.5);
+  .cyber-button {
+    @apply relative bg-cyber-black text-neon-pink border border-neon-pink
+           px-4 py-2 inline-block font-cyber uppercase tracking-wider
+           shadow-neon transition-all duration-300
+           hover:bg-neon-pink hover:text-cyber-black hover:shadow-none;
   }
 
-  .neon-blue-text {
-    color: var(--neon-blue);
-    text-shadow: 0 0 5px rgba(78, 174, 255, 0.7);
+  .cyber-input {
+    @apply bg-cyber-dark border border-neon-blue text-foreground px-4 py-2
+           focus:outline-none focus:ring-1 focus:ring-neon-blue focus:border-neon-blue
+           shadow-neon-blue;
   }
 
-  .neon-pink-text {
-    color: var(--neon-pink);
-    text-shadow: 0 0 5px rgba(255, 94, 174, 0.7);
-  }
-
-  .neon-green-text {
-    color: var(--neon-green);
-    text-shadow: 0 0 5px rgba(94, 255, 143, 0.7);
-  }
-
-  .neon-yellow-text {
-    color: var(--neon-yellow);
-    text-shadow: 0 0 5px rgba(255, 229, 94, 0.7);
-  }
-
-  /* Cyber Card Styles */
   .cyber-card {
-    @apply bg-background border border-neon-blue rounded-md p-6 relative;
-    box-shadow: 0 0 10px rgba(78, 174, 255, 0.3);
-    overflow: hidden;
+    @apply bg-cyber-dark border border-neon-pink p-6
+           shadow-neon relative overflow-hidden;
   }
 
   .cyber-card::before {
     content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 2px;
-    background: linear-gradient(90deg, var(--neon-blue), transparent);
+    @apply absolute inset-0 bg-cyber-gradient opacity-10 animate-background-glow;
   }
 
-  .cyber-card-mini {
-    @apply bg-background border border-neon-blue/50 rounded-md p-4 relative;
-    box-shadow: 0 0 5px rgba(78, 174, 255, 0.2);
+  .cyber-dashboard {
+    @apply min-h-screen bg-cyber-black bg-cyber-grid text-foreground p-4;
   }
 
-  /* Button Styles */
-  .cyber-button {
-    @apply px-4 py-2 bg-background text-neon-blue font-mono uppercase tracking-wider border border-neon-blue relative;
-    box-shadow: 0 0 5px rgba(78, 174, 255, 0.5);
-    transition: all 0.2s ease;
+  .neon-text {
+    @apply text-neon-pink font-cyber;
+    text-shadow: 0 0 5px #ff00ff, 0 0 10px #ff00ff;
   }
 
-  .cyber-button:hover {
-    @apply bg-neon-blue/10;
-    box-shadow: 0 0 15px rgba(78, 174, 255, 0.8);
+  .neon-blue-text {
+    @apply text-neon-blue font-cyber;
+    text-shadow: 0 0 5px #00ffff, 0 0 10px #00ffff;
   }
 
-  .cyber-button-sm {
-    @apply px-3 py-1 text-sm bg-background text-neon-blue font-mono uppercase tracking-wider border border-neon-blue relative;
-    box-shadow: 0 0 3px rgba(78, 174, 255, 0.5);
-    transition: all 0.2s ease;
+  .neon-yellow-text {
+    @apply text-neon-yellow font-cyber;
+    text-shadow: 0 0 5px #ffff00, 0 0 10px #ffff00;
   }
 
-  .cyber-button-sm:hover {
-    @apply bg-neon-blue/10;
-    box-shadow: 0 0 10px rgba(78, 174, 255, 0.8);
+  .data-grid {
+    @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6;
   }
 
-  .cyber-button-secondary {
-    @apply px-4 py-2 bg-background text-neon-pink font-mono uppercase tracking-wider border border-neon-pink relative;
-    box-shadow: 0 0 5px rgba(255, 94, 174, 0.5);
-    transition: all 0.2s ease;
+  .cyber-nav {
+    @apply bg-cyber-dark border-b border-neon-pink px-6 py-4;
   }
 
-  .cyber-button-secondary:hover {
-    @apply bg-neon-pink/10;
-    box-shadow: 0 0 15px rgba(255, 94, 174, 0.8);
+  .cyber-nav-item {
+    @apply text-foreground hover:text-neon-pink transition-colors duration-200;
   }
 
-  /* Input Styles */
-  .cyber-input {
-    @apply bg-background border border-neon-blue/50 text-foreground p-2 font-mono;
-    box-shadow: inset 0 0 5px rgba(78, 174, 255, 0.2);
-    transition: all 0.2s ease;
-  }
-
-  .cyber-input:focus {
-    @apply outline-none border-neon-blue;
-    box-shadow: 0 0 10px rgba(78, 174, 255, 0.5), inset 0 0 5px rgba(78, 174, 255, 0.2);
-  }
-
-  /* Checkbox Styles */
-  .cyber-checkbox {
-    @apply appearance-none w-5 h-5 border border-neon-blue bg-background relative;
-    transition: all 0.2s ease;
-  }
-
-  .cyber-checkbox:checked {
-    @apply bg-neon-blue/20;
-  }
-
-  .cyber-checkbox:checked::after {
-    content: '✓';
-    @apply text-neon-blue absolute inset-0 flex items-center justify-center;
-  }
-
-  /* Badge Styles */
   .cyber-badge {
-    @apply px-2 py-1 text-xs font-mono rounded;
+    @apply px-2 py-1 text-xs font-mono uppercase tracking-wider;
   }
 
   .cyber-badge-buy {
-    @apply bg-neon-green/10 text-neon-green;
+    @apply bg-neon-green/10 text-neon-green border border-neon-green;
   }
 
   .cyber-badge-sell {
-    @apply bg-neon-pink/10 text-neon-pink;
-  }
-}
-
-/* Animated border effect */
-.border-animated {
-  position: relative;
-  overflow: hidden;
-}
-
-.border-animated::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--neon-blue), transparent);
-  animation: cyber-scan 3s linear infinite;
-}
-
-@keyframes cyber-scan {
-  0% {
-    left: -100%;
-  }
-  100% {
-    left: 100%;
+    @apply bg-neon-pink/10 text-neon-pink border border-neon-pink;
   }
 }
