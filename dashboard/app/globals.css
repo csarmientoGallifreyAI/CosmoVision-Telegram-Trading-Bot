@@ -1,0 +1,171 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0f0f19;
+  --foreground: #e0e0f0;
+  --neon-blue: #4eaeff;
+  --neon-pink: #ff5eae;
+  --neon-purple: #a56eff;
+  --neon-green: #5eff8f;
+  --neon-yellow: #ffe55e;
+  --destructive: #ff4e4e;
+}
+
+/* Cyberpunk Theme Styles */
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: 'Inter', sans-serif;
+}
+
+@layer components {
+  /* Neon Text Effects */
+  .neon-text {
+    color: var(--neon-blue);
+    text-shadow: 0 0 5px rgba(78, 174, 255, 0.7), 0 0 10px rgba(78, 174, 255, 0.5);
+  }
+
+  .neon-blue-text {
+    color: var(--neon-blue);
+    text-shadow: 0 0 5px rgba(78, 174, 255, 0.7);
+  }
+
+  .neon-pink-text {
+    color: var(--neon-pink);
+    text-shadow: 0 0 5px rgba(255, 94, 174, 0.7);
+  }
+
+  .neon-green-text {
+    color: var(--neon-green);
+    text-shadow: 0 0 5px rgba(94, 255, 143, 0.7);
+  }
+
+  .neon-yellow-text {
+    color: var(--neon-yellow);
+    text-shadow: 0 0 5px rgba(255, 229, 94, 0.7);
+  }
+
+  /* Cyber Card Styles */
+  .cyber-card {
+    @apply bg-background border border-neon-blue rounded-md p-6 relative;
+    box-shadow: 0 0 10px rgba(78, 174, 255, 0.3);
+    overflow: hidden;
+  }
+
+  .cyber-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, var(--neon-blue), transparent);
+  }
+
+  .cyber-card-mini {
+    @apply bg-background border border-neon-blue/50 rounded-md p-4 relative;
+    box-shadow: 0 0 5px rgba(78, 174, 255, 0.2);
+  }
+
+  /* Button Styles */
+  .cyber-button {
+    @apply px-4 py-2 bg-background text-neon-blue font-mono uppercase tracking-wider border border-neon-blue relative;
+    box-shadow: 0 0 5px rgba(78, 174, 255, 0.5);
+    transition: all 0.2s ease;
+  }
+
+  .cyber-button:hover {
+    @apply bg-neon-blue/10;
+    box-shadow: 0 0 15px rgba(78, 174, 255, 0.8);
+  }
+
+  .cyber-button-sm {
+    @apply px-3 py-1 text-sm bg-background text-neon-blue font-mono uppercase tracking-wider border border-neon-blue relative;
+    box-shadow: 0 0 3px rgba(78, 174, 255, 0.5);
+    transition: all 0.2s ease;
+  }
+
+  .cyber-button-sm:hover {
+    @apply bg-neon-blue/10;
+    box-shadow: 0 0 10px rgba(78, 174, 255, 0.8);
+  }
+
+  .cyber-button-secondary {
+    @apply px-4 py-2 bg-background text-neon-pink font-mono uppercase tracking-wider border border-neon-pink relative;
+    box-shadow: 0 0 5px rgba(255, 94, 174, 0.5);
+    transition: all 0.2s ease;
+  }
+
+  .cyber-button-secondary:hover {
+    @apply bg-neon-pink/10;
+    box-shadow: 0 0 15px rgba(255, 94, 174, 0.8);
+  }
+
+  /* Input Styles */
+  .cyber-input {
+    @apply bg-background border border-neon-blue/50 text-foreground p-2 font-mono;
+    box-shadow: inset 0 0 5px rgba(78, 174, 255, 0.2);
+    transition: all 0.2s ease;
+  }
+
+  .cyber-input:focus {
+    @apply outline-none border-neon-blue;
+    box-shadow: 0 0 10px rgba(78, 174, 255, 0.5), inset 0 0 5px rgba(78, 174, 255, 0.2);
+  }
+
+  /* Checkbox Styles */
+  .cyber-checkbox {
+    @apply appearance-none w-5 h-5 border border-neon-blue bg-background relative;
+    transition: all 0.2s ease;
+  }
+
+  .cyber-checkbox:checked {
+    @apply bg-neon-blue/20;
+  }
+
+  .cyber-checkbox:checked::after {
+    content: '✓';
+    @apply text-neon-blue absolute inset-0 flex items-center justify-center;
+  }
+
+  /* Badge Styles */
+  .cyber-badge {
+    @apply px-2 py-1 text-xs font-mono rounded;
+  }
+
+  .cyber-badge-buy {
+    @apply bg-neon-green/10 text-neon-green;
+  }
+
+  .cyber-badge-sell {
+    @apply bg-neon-pink/10 text-neon-pink;
+  }
+}
+
+/* Animated border effect */
+.border-animated {
+  position: relative;
+  overflow: hidden;
+}
+
+.border-animated::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--neon-blue), transparent);
+  animation: cyber-scan 3s linear infinite;
+}
+
+@keyframes cyber-scan {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
+}

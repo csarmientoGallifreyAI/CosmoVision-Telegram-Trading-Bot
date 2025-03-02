@@ -4,6 +4,10 @@
     {
       "src": "api/**/*.js",
       "use": "@vercel/node"
+    },
+    {
+      "src": "dashboard/package.json",
+      "use": "@vercel/next"
     }
   ],
   "routes": [
@@ -20,8 +24,12 @@
       "dest": "/api/test.js"
     },
     {
+      "src": "/api/tradingDashboard(.*)",
+      "dest": "/api/tradingDashboard.js"
+    },
+    {
       "src": "/(.*)",
-      "dest": "/api/index.js"
+      "dest": "/dashboard/$1"
     }
   ],
   "crons": [
