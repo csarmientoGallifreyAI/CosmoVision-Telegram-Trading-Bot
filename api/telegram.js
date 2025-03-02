@@ -90,6 +90,12 @@ async function setupBot(bot) {
       { command: 'share', description: 'Get your referral link to share with friends' },
       { command: 'referrals', description: 'View your referrals and points' },
       { command: 'usage', description: 'Check your API usage stats' },
+      { command: 'trade', description: 'Access trading dashboard and features' },
+      { command: 'signals', description: 'View current trading signals' },
+      { command: 'mytrades', description: 'View your trade history' },
+      { command: 'coins', description: 'View available coins for trading' },
+      { command: 'predict', description: 'Get price prediction for a coin' },
+      { command: 'sentiment', description: 'Get sentiment analysis for a coin' },
     ]);
 
     // Set bot profile photo if the file exists
@@ -185,6 +191,13 @@ function registerBotHandlers(bot) {
         '/similar <coin> - Find coins similar to a specific one\n' +
         '/trend <coin> - Get AI-powered trend analysis\n' +
         '/risk <coin> - Get detailed risk assessment\n\n' +
+        '📈 Trading Features:\n' +
+        '/trade - Open trading dashboard\n' +
+        '/signals - View current trading signals\n' +
+        '/mytrades - View your trade history\n' +
+        '/predict <symbol> - Get price prediction for a coin\n' +
+        '/sentiment <symbol> - Get sentiment analysis for a coin\n' +
+        '/coins - View available coins for trading\n\n' +
         '👥 Community Features:\n' +
         '/share - Get your referral link to share with friends\n' +
         '/referrals - View your referrals and earned points\n' +
@@ -843,6 +856,28 @@ function registerBotHandlers(bot) {
       await ctx.reply('Sorry, I encountered an error processing your message.');
     }
   });
+
+  // Import the trading command handlers
+  const TradeCommands = require('../src/commands/trade');
+
+  // Import the help and dashboard commands
+  const HelpCommand = require('../src/commands/help');
+  const DashboardCommand = require('../src/commands/dashboard');
+
+  // Register trading commands
+  bot.command('trade', TradeCommands.handleTradeCommand);
+  bot.command('signals', TradeCommands.handleSignalsCommand);
+  bot.command('mytrades', TradeCommands.handleMyTradesCommand);
+  bot.command('predict', TradeCommands.handlePredictCommand);
+  bot.command('sentiment', TradeCommands.handleSentimentCommand);
+  bot.command('coins', TradeCommands.handleCoinsCommand);
+
+  // Register help and dashboard commands
+  bot.command('help', HelpCommand.handler);
+  bot.command('dashboard', DashboardCommand.handler);
+
+  // Register callback handler for trading features
+  bot.action(/^trades:/, TradeCommands.handleTradeCallback);
 
   // Handle unexpected errors
   bot.catch((err, ctx) => {
